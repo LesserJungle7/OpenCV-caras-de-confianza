@@ -19,3 +19,7 @@ ENV/
 # Operating System files
 .DS_Store
 Thumbs.db
+
+# Runtime data and generated images
+datos/
+imagenes/
