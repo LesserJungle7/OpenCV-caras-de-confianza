@@ -24,8 +24,10 @@ from config import (
     COLOR_RETO_ACTIVO,
     COLOR_REGION_ACTIVA,
     COLOR_TEXTO_HUD,
-    FUENTE
+    FUENTE,
+    AUDIO_SUCCESS
 )
+from sistema import reproducir_audio
 
 _clasificador_ojos = None
 
@@ -531,6 +533,7 @@ class EvaluadorGestos:
 
         # 4. Comprobar superacion del paso
         if self.frames_confirmados >= FRAMES_CONFIRMACION_GESTO:
+            reproducir_audio(AUDIO_SUCCESS)
             self.paso_actual += 1
             self.frames_confirmados = 0
             self.tiempo_inicio_gesto = time.time()

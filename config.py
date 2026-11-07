@@ -1,13 +1,19 @@
+import os
 import cv2
 
 # Rutas del sistema
 CARPETA_CONFIANZA = "imagenes/confianza"
 CARPETA_INTRUSOS = "imagenes/intrusos"
 CARPETA_DATOS = "datos"
+CARPETA_AUDIOS = "audios"
 ARCHIVO_CONFIG = "datos/usuarios.json"
 RUTA_CASCADE_FACE = "haarcascades/haarcascade_frontalface_default.xml"
 RUTA_CASCADE_EYE = "haarcascades/haarcascade_eye.xml"
 RUTA_CASCADE = RUTA_CASCADE_FACE
+
+# Rutas de audios de feedback
+AUDIO_SUCCESS = os.path.join(CARPETA_AUDIOS, "success.mp3")
+AUDIO_ERROR = os.path.join(CARPETA_AUDIOS, "error.mp3")
 
 # Parametros de comparacion facial y presencia
 UMBRAL_COINCIDENCIA = 0.22
