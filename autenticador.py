@@ -31,9 +31,7 @@ def verificar_password_texto(usuario, datos_sistema=None):
     print(f"\n[AVISO] Usuario de confianza detectado: {usuario.upper()}")
     password_ingresada = input(f"Introduce tu contraseña, {usuario}: ").strip()
 
-    info_usuario = obtener_usuario(usuario)
-    if info_usuario is None and datos_sistema:
-        info_usuario = datos_sistema.get("usuarios", {}).get(usuario, {})
+    info_usuario = datos_sistema.get("usuarios", {}).get(usuario) if datos_sistema else obtener_usuario(usuario)
 
     if info_usuario and password_ingresada == info_usuario.get("password"):
         print("[OK] Contraseña de texto correcta. Iniciando reto de contraseña facial...")
@@ -44,9 +42,7 @@ def verificar_password_texto(usuario, datos_sistema=None):
 
 def mostrar_permisos_usuario(usuario, datos_sistema=None):
     """Muestra por terminal el mensaje de bienvenida y el rol asignado."""
-    info_usuario = obtener_usuario(usuario)
-    if info_usuario is None and datos_sistema:
-        info_usuario = datos_sistema.get("usuarios", {}).get(usuario, {})
+    info_usuario = datos_sistema.get("usuarios", {}).get(usuario) if datos_sistema else obtener_usuario(usuario)
 
     rol = info_usuario.get("rol", "Invitado") if info_usuario else "Invitado"
     print(f"\n[ACCESO CONCEDIDO] Bienvenido/a {usuario}.")
@@ -154,7 +150,9 @@ def ejecutar_guardia():
                     roi_cara = frame_byn[y:y+alto, x:x+ancho]
                     usuario, score = identificar_rostro(roi_cara, lista_nombres, lista_caras)
 
-                    datos_sistema = cargar_usuarios()
+                    if usuario is not None and usuario not in datos_sistema.get("usuarios", {}):
+                        datos_sistema = cargar_usuarios()
+
                     if usuario is not None and usuario in datos_sistema.get("usuarios", {}):
                         cv2.putText(frame_mostrar, f"Usuario: {usuario.upper()}", (x, y - 10), FUENTE, 0.6, COLOR_TEXTO, 2)
                         cv2.imshow("Autenticador Facial", frame_mostrar)

@@ -16,6 +16,7 @@ from config import (
 
 # Instancias globales a nivel de modulo
 _CLAHE = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4, 4))
+_clasificador_rostros = None
 _clasificador_ojos = None
 if os.path.exists(RUTA_CASCADE_EYE):
     try:
@@ -29,8 +30,68 @@ if ALINEAR_OJOS and _clasificador_ojos is None:
     print(f"[AVISO] ALINEAR_OJOS está activo pero no se pudo cargar el clasificador de ojos desde '{RUTA_CASCADE_EYE}'. La alineación queda desactivada.")
 
 def obtener_clasificador():
-    """Instancia el clasificador Haar Cascade."""
-    return cv2.CascadeClassifier(RUTA_CASCADE)
+    """Devuelve la instancia cacheada del clasificador Haar Cascade de rostros."""
+    global _clasificador_rostros
+    if _clasificador_rostros is None and os.path.exists(RUTA_CASCADE):
+        _clasificador_rostros = cv2.CascadeClassifier(RUTA_CASCADE)
+    return _clasificador_rostros
+
+def calcular_angulo_ojos(cara_gris, clasificador_ojos=None):
+    """
+    Calcula el angulo de inclinacion entre ambos ojos en la mitad superior de la cara.
+    Retorna el angulo en grados si se detecta exactamente un ojo en cada hemisferio
+    con separacion horizontal valida, o None si no se cumplen las condiciones.
+    """
+    clasificador = clasificador_ojos or _clasificador_ojos
+    if clasificador is None or cara_gris is None or cara_gris.size == 0:
+        return None
+
+    alto, ancho = cara_gris.shape[:2]
+    if alto < 40 or ancho < 40:
+        return None
+
+    y1_ojos = int(alto * 0.10)
+    y2_ojos = int(alto * 0.60)
+    roi_ojos = cara_gris[y1_ojos:y2_ojos, :]
+
+    ojos = clasificador.detectMultiScale(
+        roi_ojos,
+        scaleFactor=1.1,
+        minNeighbors=4,
+        minSize=(int(ancho * 0.12), int(alto * 0.10)),
+        maxSize=(int(ancho * 0.45), int(alto * 0.35))
+    )
+
+    ojos_izq = []
+    ojos_der = []
+    mitad_x = ancho / 2.0
+
+    for (ox, oy, ow, oh) in ojos:
+        cx = ox + ow / 2.0
+        cy = y1_ojos + oy + oh / 2.0
+        if cx < mitad_x:
+            ojos_izq.append((cx, cy))
+        else:
+            ojos_der.append((cx, cy))
+
+    if len(ojos_izq) != 1 or len(ojos_der) != 1:
+        return None
+
+    cx_izq, cy_izq = ojos_izq[0]
+    cx_der, cy_der = ojos_der[0]
+
+    dist_h = cx_der - cx_izq
+    if not (0.25 * ancho <= dist_h <= 0.65 * ancho):
+        return None
+
+    dx = cx_der - cx_izq
+    dy = cy_der - cy_izq
+    angulo = float(np.degrees(np.arctan2(dy, dx)))
+
+    if abs(angulo) > ANGULO_MAXIMO_ALINEACION:
+        return None
+
+    return angulo
 
 def ajustar_brillo_histograma(frame, brillo_objetivo=BRILLO_OBJETIVO):
     """
@@ -96,66 +157,14 @@ def detectar_caras(frame, clasificador=None, scale_factor=1.15, min_neighbors=5,
 def alinear_ojos(cara):
     """
     Nivela horizontalmente los ojos si se detectan ambos en la mitad superior de la cara.
-    No rota si no hay exactamente un ojo a la izquierda y otro a la derecha,
-    si la separacion entre ellos es anomala o si el angulo supera ANGULO_MAXIMO_ALINEACION.
+    Aplica rotacion afin preservando bordes mediante BORDER_REPLICATE.
     """
-    if _clasificador_ojos is None:
+    cara_gris = cv2.cvtColor(cara, cv2.COLOR_BGR2GRAY) if len(cara.shape) == 3 else cara
+    angulo = calcular_angulo_ojos(cara_gris, _clasificador_ojos)
+    if angulo is None:
         return cara
 
     alto, ancho = cara.shape[:2]
-    if alto < 40 or ancho < 40:
-        return cara
-
-    # 1. Buscar ojos solo entre el 10 % y 60 % de la altura de la cara
-    y1_ojos = int(alto * 0.10)
-    y2_ojos = int(alto * 0.60)
-    roi_ojos = cara[y1_ojos:y2_ojos, :]
-
-    min_s = (int(ancho * 0.12), int(alto * 0.10))
-    max_s = (int(ancho * 0.45), int(alto * 0.35))
-
-    ojos = _clasificador_ojos.detectMultiScale(
-        roi_ojos,
-        scaleFactor=1.1,
-        minNeighbors=4,
-        minSize=min_s,
-        maxSize=max_s
-    )
-
-    # 2. Clasificar detecciones en mitad izquierda y derecha
-    ojos_izq = []
-    ojos_der = []
-    mitad_x = ancho / 2.0
-
-    for (ox, oy, ow, oh) in ojos:
-        cx = ox + ow / 2.0
-        cy = y1_ojos + oy + oh / 2.0
-        if cx < mitad_x:
-            ojos_izq.append((cx, cy))
-        else:
-            ojos_der.append((cx, cy))
-
-    # Exigir exactamente un ojo en cada hemisferio
-    if len(ojos_izq) != 1 or len(ojos_der) != 1:
-        return cara
-
-    cx_izq, cy_izq = ojos_izq[0]
-    cx_der, cy_der = ojos_der[0]
-
-    # 3. Distancia horizontal razonable entre ojos (25 % a 65 % del ancho facial)
-    dist_h = cx_der - cx_izq
-    if not (0.25 * ancho <= dist_h <= 0.65 * ancho):
-        return cara
-
-    # 4. Calcular angulo de inclinacion respecto a la horizontal
-    dx = cx_der - cx_izq
-    dy = cy_der - cy_izq
-    angulo = float(np.degrees(np.arctan2(dy, dx)))
-
-    if abs(angulo) > ANGULO_MAXIMO_ALINEACION:
-        return cara
-
-    # 5. Rotar preservando bordes con BORDER_REPLICATE
     centro = (ancho / 2.0, alto / 2.0)
     matriz_rot = cv2.getRotationMatrix2D(centro, angulo, 1.0)
     return cv2.warpAffine(cara, matriz_rot, (ancho, alto), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)

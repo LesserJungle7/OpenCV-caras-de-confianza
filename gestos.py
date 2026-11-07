@@ -30,6 +30,7 @@ from config import (
     AUDIO_SUCCESS
 )
 from sistema import reproducir_audio
+from vision import calcular_angulo_ojos
 
 _clasificador_ojos = None
 
@@ -116,41 +117,21 @@ def dibujar_rois(frame_mostrar, rois, regiones_activas=None, estados_texto=None,
     grosor_cara = 3 if gesto_confirmando else 2
     cv2.rectangle(frame_mostrar, (fx, fy), (fx + fw, fy + fh), color_cara, grosor_cara)
 
-    # 1. Cejas
-    cx, cy, cw, ch = rois["cejas"]["rect"]
-    if cw > 0 and ch > 0:
-        activa_c = bool(regiones_activas.get("cejas", False))
-        color_c = COLOR_ACTIVO if activa_c else COLOR_INACTIVO
-        cv2.rectangle(frame_mostrar, (cx, cy), (cx + cw, cy + ch), color_c, 2 if activa_c else 1)
-        texto_cejas = f"Cejas: {estados_texto.get('cejas', 'REPOSO')}"
-        cv2.putText(frame_mostrar, texto_cejas, (cx, cy - 6), FUENTE, 0.4, color_c, 1)
+    elementos = [
+        ("cejas", f"Cejas: {estados_texto.get('cejas', 'REPOSO')}", False),
+        ("ojo_izq", f"Ojo Izq: {estados_texto.get('ojo_izq', 'ABIERTO')}", False),
+        ("ojo_der", f"Ojo Der: {estados_texto.get('ojo_der', 'ABIERTO')}", False),
+        ("boca", f"Boca: {estados_texto.get('boca', 'SERIA')}", True)
+    ]
 
-    # 2. Ojo izquierdo
-    oix, oiy, oiw, oih = rois["ojo_izq"]["rect"]
-    if oiw > 0 and oih > 0:
-        activa_oi = bool(regiones_activas.get("ojo_izq", False))
-        color_oi = COLOR_ACTIVO if activa_oi else COLOR_INACTIVO
-        cv2.rectangle(frame_mostrar, (oix, oiy), (oix + oiw, oiy + oih), color_oi, 2 if activa_oi else 1)
-        texto_oi = f"Ojo Izq: {estados_texto.get('ojo_izq', 'ABIERTO')}"
-        cv2.putText(frame_mostrar, texto_oi, (oix, oiy - 6), FUENTE, 0.4, color_oi, 1)
-
-    # 3. Ojo derecho
-    odx, ody, odw, odh = rois["ojo_der"]["rect"]
-    if odw > 0 and odh > 0:
-        activa_od = bool(regiones_activas.get("ojo_der", False))
-        color_od = COLOR_ACTIVO if activa_od else COLOR_INACTIVO
-        cv2.rectangle(frame_mostrar, (odx, ody), (odx + odw, ody + odh), color_od, 2 if activa_od else 1)
-        texto_od = f"Ojo Der: {estados_texto.get('ojo_der', 'ABIERTO')}"
-        cv2.putText(frame_mostrar, texto_od, (odx, ody - 6), FUENTE, 0.4, color_od, 1)
-
-    # 4. Boca
-    bx, by, bw, bh = rois["boca"]["rect"]
-    if bw > 0 and bh > 0:
-        activa_b = bool(regiones_activas.get("boca", False))
-        color_b = COLOR_ACTIVO if activa_b else COLOR_INACTIVO
-        cv2.rectangle(frame_mostrar, (bx, by), (bx + bw, by + bh), color_b, 2 if activa_b else 1)
-        texto_boca = f"Boca: {estados_texto.get('boca', 'SERIA')}"
-        cv2.putText(frame_mostrar, texto_boca, (bx, by + bh + 14), FUENTE, 0.4, color_b, 1)
+    for clave, etiqueta, texto_abajo in elementos:
+        rx, ry, rw, rh = rois[clave]["rect"]
+        if rw > 0 and rh > 0:
+            activa = bool(regiones_activas.get(clave, False))
+            color = COLOR_ACTIVO if activa else COLOR_INACTIVO
+            cv2.rectangle(frame_mostrar, (rx, ry), (rx + rw, ry + rh), color, 2 if activa else 1)
+            pos_y = (ry + rh + 14) if texto_abajo else (ry - 6)
+            cv2.putText(frame_mostrar, etiqueta, (rx, pos_y), FUENTE, 0.4, color, 1)
 
 def dibujar_hud(frame_mostrar, paso_actual, total_pasos, nombre_gesto, tiempo_restante, frames_ok, total_frames_ok, calibrando=False):
     """Renderiza el panel superior HUD con las instrucciones del reto y progreso."""
@@ -247,35 +228,10 @@ class EvaluadorGestos:
                 self.hist_aspect_od.append(asp_od)
 
         # Deteccion de angulo neutro si la clasificacion de ojos esta activa
-        if ALINEAR_OJOS and self.clasificador_ojos is not None and cara_gris is not None:
-            alto_cara, ancho_cara = cara_gris.shape[:2]
-            y1_det = int(alto_cara * 0.10)
-            y2_det = int(alto_cara * 0.60)
-            roi_ojos_det = cara_gris[y1_det:y2_det, :]
-
-            ojos_haar = self.clasificador_ojos.detectMultiScale(
-                roi_ojos_det,
-                scaleFactor=1.1,
-                minNeighbors=4,
-                minSize=(int(ancho_cara * 0.12), int(alto_cara * 0.10)),
-                maxSize=(int(ancho_cara * 0.45), int(alto_cara * 0.35))
-            )
-            izq_c, der_c = [], []
-            for (ox, oy, ow_d, oh_d) in ojos_haar:
-                cx = ox + ow_d / 2.0
-                cy = y1_det + oy + oh_d / 2.0
-                if cx < ancho_cara / 2.0:
-                    izq_c.append((cx, cy))
-                else:
-                    der_c.append((cx, cy))
-
-            if len(izq_c) == 1 and len(der_c) == 1:
-                dx = der_c[0][0] - izq_c[0][0]
-                dy = der_c[0][1] - izq_c[0][1]
-                if (0.25 * ancho_cara <= dx <= 0.65 * ancho_cara) and (abs(dy) <= 0.15 * alto_cara):
-                    ang = float(np.degrees(np.arctan2(dy, dx)))
-                    if abs(ang) <= ANGULO_MAXIMO_ALINEACION:
-                        self.angulos_calibracion.append(ang)
+        if ALINEAR_OJOS and cara_gris is not None:
+            ang = calcular_angulo_ojos(cara_gris, self.clasificador_ojos)
+            if ang is not None:
+                self.angulos_calibracion.append(ang)
 
         if dist_c is not None:
             self.hist_cejas.append(dist_c)
