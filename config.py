@@ -10,8 +10,8 @@ RUTA_CASCADE = "haarcascades/haarcascade_frontalface_default.xml"
 # Parametros de comparacion facial y presencia
 UMBRAL_COINCIDENCIA = 0.22
 TIEMPO_AUSENCIA_GUARDIA = 10  # Tiempo en segundos sin detectar usuario antes de reactivar la guardia
-AREA_MINIMA_CARA = 8000       # Area minima (ancho * alto) para descartar detecciones falsas (Semana 6)
-BRILLO_OBJETIVO = 120         # Nivel medio de iluminacion deseado calculado con histograma (Semana 3 y 5)
+AREA_MINIMA_CARA = 8000       # Area minima (ancho * alto) para descartar detecciones falsas
+BRILLO_OBJETIVO = 120         # Nivel medio de iluminacion deseado calculado con histograma
 
 # Estilos visuales para OpenCV
 COLOR_TEXTO = (0, 255, 255)

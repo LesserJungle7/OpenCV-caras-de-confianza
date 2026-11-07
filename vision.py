@@ -23,7 +23,7 @@ def ajustar_brillo_histograma(frame, brillo_objetivo=BRILLO_OBJETIVO):
     else:
         frame_gris = frame
 
-    # Calculamos el histograma en escala de grises como en Semana 3 (histograma.py)
+    # Calculamos el histograma en escala de grises
     hist = cv2.calcHist([frame_gris], [0], None, [256], [0, 256])
     total_pixeles = np.sum(hist)
     if total_pixeles == 0:
@@ -32,13 +32,13 @@ def ajustar_brillo_histograma(frame, brillo_objetivo=BRILLO_OBJETIVO):
     # Sacamos el brillo medio multiplicando cada nivel de luz por su frecuencia en el histograma
     brillo_medio = int(np.sum(np.arange(256) * hist.flatten()) / total_pixeles)
 
-    # Si la escena está poco iluminada, le subimos el brillo con la función vista en Semana 5
+    # Si la escena está poco iluminada, le subimos el brillo
     if brillo_medio < brillo_objetivo and len(frame.shape) == 3:
         incremento = brillo_objetivo - brillo_medio
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         h, s, v = cv2.split(hsv)
 
-        # Evitamos pasar de 255 sumando el incremento con tope, igual que en clase
+        # Evitamos pasar de 255 sumando el incremento con tope
         limite = 255 - incremento
         v[v > limite] = 255
         v[v <= limite] += incremento
@@ -56,7 +56,7 @@ def detectar_caras(frame, clasificador=None, scale_factor=1.15, min_neighbors=5,
     if clasificador is None:
         clasificador = obtener_clasificador()
 
-    # Paso 1: Ajustamos el brillo antes de la deteccion para que el clasificador funcione mejor
+    # Paso 1: Ajustamos el brillo antes de la detección para que el clasificador funcione mejor
     frame_ajustado = ajustar_brillo_histograma(frame)
 
     if len(frame_ajustado.shape) == 3:
@@ -66,7 +66,7 @@ def detectar_caras(frame, clasificador=None, scale_factor=1.15, min_neighbors=5,
 
     caras = clasificador.detectMultiScale(frame_byn, scaleFactor=scale_factor, minNeighbors=min_neighbors)
 
-    # Paso 3: Filtramos las detecciones por area minima (Semana 6) para descartar sombras o falsos positivos pequeños
+    # Paso 3: Filtramos las detecciones por area mínima para descartar sombras o falsos positivos pequeños.
     caras_filtradas = []
     for (x, y, ancho, alto) in caras:
         if (ancho * alto) >= area_min:
@@ -100,14 +100,14 @@ def identificar_rostro(roi_cara_byn, lista_nombres, lista_caras, umbral=UMBRAL_C
     mejor_score = 1.0
     nombre_detectado = None
 
-    # Paso 2: Usamos cv2.blur con kernel (3, 3) como en Semana 3 para quitar ruido y grano de la camara
+    # Paso 2: Usamos cv2.blur con kernel (3, 3) para quitar ruido y grano de la camara
     roi_suavizada = cv2.blur(roi_cara_byn, (3, 3))
     alto_roi, ancho_roi = roi_suavizada.shape[:2]
 
     for indice in range(len(lista_caras)):
         patron = lista_caras[indice]
 
-        # Paso 5: Como vimos en Semana 3 (Escalado.py), elegimos la interpolacion segun si agrandamos o reducimos:
+        # Paso 5: Elegimos la interpolacion según si agrandamos o reducimos:
         # INTER_AREA para reducir (mas nítida) e INTER_LINEAR para ampliar sin pixelar
         if ancho_roi < patron.shape[1] or alto_roi < patron.shape[0]:
             tipo_interpolacion = cv2.INTER_AREA
@@ -119,7 +119,7 @@ def identificar_rostro(roi_cara_byn, lista_nombres, lista_caras, umbral=UMBRAL_C
         # Suavizamos tambien la plantilla para que la comparacion de pixeles sea justa
         patron_suavizado = cv2.blur(patron_redimensionado, (3, 3))
 
-        # Busqueda por plantilla con TM_SQDIFF_NORMED (Semana 4: busquedaSimilitud.py y almacenar-buscarCaras.py)
+        # Busqueda por plantilla con TM_SQDIFF_NORMED
         res = cv2.matchTemplate(roi_suavizada, patron_suavizado, cv2.TM_SQDIFF_NORMED)
         min_val, _, _, _ = cv2.minMaxLoc(res)
 
