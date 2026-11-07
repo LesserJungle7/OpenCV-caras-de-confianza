@@ -20,7 +20,8 @@ from vision import (
     cargar_caras_confianza,
     identificar_rostro,
     obtener_clasificador,
-    detectar_caras
+    detectar_caras,
+    normalizar_cara
 )
 from sistema import suspender_equipo, guardar_evidencia_intruso, reproducir_audio
 from usuarios import cargar_usuarios, inicializar_entorno, obtener_usuario
@@ -147,10 +148,15 @@ def ejecutar_guardia():
                 if len(caras) > 0:
                     x, y, ancho, alto = caras[0]
                     cv2.rectangle(frame_mostrar, (x, y), (x + ancho, y + alto), COLOR_RECUADRO, GROSOR)
-                    roi_cara = frame_byn[y:y+alto, x:x+ancho]
+                    roi_cara = normalizar_cara(frame_byn, caja=caras[0])
                     usuario, score = identificar_rostro(roi_cara, lista_nombres, lista_caras)
 
-                    if usuario is not None and usuario not in datos_sistema.get("usuarios", {}):
+                    if usuario is None:
+                        # Recarga en caliente ante nuevo usuario registrado durante la ejecucion
+                        lista_nombres, lista_caras = cargar_caras_confianza()
+                        datos_sistema = cargar_usuarios()
+                        usuario, score = identificar_rostro(roi_cara, lista_nombres, lista_caras)
+                    elif usuario not in datos_sistema.get("usuarios", {}):
                         datos_sistema = cargar_usuarios()
 
                     if usuario is not None and usuario in datos_sistema.get("usuarios", {}):

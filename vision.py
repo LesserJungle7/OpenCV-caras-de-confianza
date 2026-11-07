@@ -216,18 +216,33 @@ def normalizar_cara(gris, caja=None):
     return cv2.GaussianBlur(cara_clahe, (3, 3), 0)
 
 def cargar_caras_confianza():
-    """Carga en memoria los nombres y plantillas de rostros autorizados."""
+    """Carga en memoria los nombres y plantillas de rostros autorizados normalizadas."""
     lista_nombres = []
     lista_caras = []
 
     if not os.path.exists(CARPETA_CONFIANZA):
         return lista_nombres, lista_caras
 
+    sufijos_conocidos = (
+        "_frente_normal",
+        "_frente_sonriendo",
+        "_perfil_derecho",
+        "_perfil_izquierdo"
+    )
+
     for archivo in os.listdir(CARPETA_CONFIANZA):
         if archivo.lower().endswith((".jpg", ".jpeg", ".png")):
-            nombre_base = archivo.split("_")[0]
+            nombre_sin_ext, _ = os.path.splitext(archivo)
+            nombre_base = nombre_sin_ext
+            for sufijo in sufijos_conocidos:
+                if nombre_base.endswith(sufijo):
+                    nombre_base = nombre_base[:-len(sufijo)]
+                    break
+
             img = cv2.imread(os.path.join(CARPETA_CONFIANZA, archivo), 0)
             if img is not None:
+                if (img.shape[1], img.shape[0]) != TAM_CARA:
+                    img = normalizar_cara(img)
                 lista_nombres.append(nombre_base)
                 lista_caras.append(img)
 
@@ -236,31 +251,35 @@ def cargar_caras_confianza():
 def identificar_rostro(roi_cara_byn, lista_nombres, lista_caras, umbral=UMBRAL_COINCIDENCIA):
     """
     Compara el rostro recortado contra las plantillas guardadas usando matchTemplate.
-    Aplica suavizado con blur y redimensiona con la interpolacion adecuada de clase.
+    Aplica suavizado con blur y redimensiona con la interpolacion adecuada si difiere el tamano.
     """
     mejor_score = 1.0
     nombre_detectado = None
 
-    # Paso 2: Usamos cv2.blur con kernel (3, 3) para quitar ruido y grano de la camara
+    if not lista_caras or roi_cara_byn is None or roi_cara_byn.size == 0:
+        return None, mejor_score
+
+    # Redimension preventiva si la ROI no tiene la resolucion normalizada
+    if (roi_cara_byn.shape[1], roi_cara_byn.shape[0]) != TAM_CARA:
+        roi_cara_byn = cv2.resize(roi_cara_byn, TAM_CARA, interpolation=cv2.INTER_AREA)
+
     roi_suavizada = cv2.blur(roi_cara_byn, (3, 3))
     alto_roi, ancho_roi = roi_suavizada.shape[:2]
 
     for indice in range(len(lista_caras)):
         patron = lista_caras[indice]
 
-        # Paso 5: Elegimos la interpolacion según si agrandamos o reducimos:
-        # INTER_AREA para reducir (mas nítida) e INTER_LINEAR para ampliar sin pixelar
-        if ancho_roi < patron.shape[1] or alto_roi < patron.shape[0]:
-            tipo_interpolacion = cv2.INTER_AREA
+        if (patron.shape[1], patron.shape[0]) != (ancho_roi, alto_roi):
+            if ancho_roi < patron.shape[1] or alto_roi < patron.shape[0]:
+                tipo_interpolacion = cv2.INTER_AREA
+            else:
+                tipo_interpolacion = cv2.INTER_LINEAR
+            patron_redimensionado = cv2.resize(patron, (ancho_roi, alto_roi), interpolation=tipo_interpolacion)
         else:
-            tipo_interpolacion = cv2.INTER_LINEAR
+            patron_redimensionado = patron
 
-        patron_redimensionado = cv2.resize(patron, (ancho_roi, alto_roi), interpolation=tipo_interpolacion)
-
-        # Suavizamos tambien la plantilla para que la comparacion de pixeles sea justa
         patron_suavizado = cv2.blur(patron_redimensionado, (3, 3))
 
-        # Busqueda por plantilla con TM_SQDIFF_NORMED
         res = cv2.matchTemplate(roi_suavizada, patron_suavizado, cv2.TM_SQDIFF_NORMED)
         min_val, _, _, _ = cv2.minMaxLoc(res)
 
