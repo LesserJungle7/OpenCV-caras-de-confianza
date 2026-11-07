@@ -23,3 +23,26 @@ def guardar_evidencia_intruso(camara, frame_actual):
     ret, frame_segundo = camara.read()
     if ret:
         cv2.imwrite(os.path.join(CARPETA_INTRUSOS, f"intruso_{timestamp}_2.jpg"), frame_segundo)
+
+def contar_intrusos_desde(timestamp_inicio=None):
+    """
+    Cuenta los eventos de intrusion registrados en CARPETA_INTRUSOS
+    que ocurrieron con posterioridad a `timestamp_inicio`.
+    Cada evento de intrusion guarda 2 fotografias con el mismo timestamp.
+    """
+    if not os.path.exists(CARPETA_INTRUSOS):
+        return 0
+
+    timestamps_eventos = set()
+    for archivo in os.listdir(CARPETA_INTRUSOS):
+        if archivo.startswith("intruso_") and archivo.endswith(".jpg"):
+            partes = archivo.split("_")
+            if len(partes) >= 2:
+                try:
+                    ts = int(partes[1])
+                    if timestamp_inicio is None or ts > timestamp_inicio:
+                        timestamps_eventos.add(ts)
+                except ValueError:
+                    continue
+
+    return len(timestamps_eventos)
