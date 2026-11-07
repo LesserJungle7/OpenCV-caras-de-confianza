@@ -10,6 +10,10 @@ RUTA_CASCADE_EYE = "haarcascades/haarcascade_eye.xml"
 RUTA_CASCADE = RUTA_CASCADE_FACE
 
 # Parametros de comparacion facial y presencia
+TAM_CARA = (120, 120)              # Dimension fija para normalizacion de rostros
+MARGEN_RECORTE_CARA = 0.08         # Fraccion de margen a descartar en bordes (8 %)
+ALINEAR_OJOS = True                # Interruptor para activar/desactivar alineacion por ojos
+ANGULO_MAXIMO_ALINEACION = 25      # Grados maximos de inclinacion admitidos para rotar
 UMBRAL_COINCIDENCIA = 0.22
 TIEMPO_AUSENCIA_GUARDIA = 10  # Tiempo en segundos sin detectar usuario antes de reactivar la guardia
 AREA_MINIMA_CARA = 8000       # Area minima (ancho * alto) para descartar detecciones falsas
