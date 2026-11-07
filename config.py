@@ -7,8 +7,9 @@ CARPETA_DATOS = "datos"
 ARCHIVO_CONFIG = "datos/usuarios.json"
 RUTA_CASCADE = "haarcascades/haarcascade_frontalface_default.xml"
 
-# Parametros de comparacion facial
+# Parametros de comparacion facial y presencia
 UMBRAL_COINCIDENCIA = 0.22
+TIEMPO_AUSENCIA_GUARDIA = 10  # Tiempo en segundos sin detectar usuario antes de reactivar la guardia
 
 # Estilos visuales para OpenCV
 COLOR_TEXTO = (0, 255, 255)

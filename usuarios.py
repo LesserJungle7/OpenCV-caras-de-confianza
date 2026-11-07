@@ -1,11 +1,12 @@
 import os
 import json
-from config import ARCHIVO_CONFIG, CARPETA_CONFIANZA, CARPETA_DATOS
+from config import ARCHIVO_CONFIG, CARPETA_CONFIANZA, CARPETA_DATOS, CARPETA_INTRUSOS
 
 def inicializar_entorno():
     """Crea directorios y archivo de configuracion si no existen."""
     os.makedirs(CARPETA_CONFIANZA, exist_ok=True)
     os.makedirs(CARPETA_DATOS, exist_ok=True)
+    os.makedirs(CARPETA_INTRUSOS, exist_ok=True)
     if not os.path.exists(ARCHIVO_CONFIG):
         datos_iniciales = {
             "admin_pass": "admin123",
