@@ -18,8 +18,8 @@ def guardar_evidencia_intruso(camara, frame_actual):
     """Guarda dos capturas consecutivas del intruso detectado."""
     os.makedirs(CARPETA_INTRUSOS, exist_ok=True)
     timestamp = int(time.time())
-    cv2.imwrite(f"{CARPETA_INTRUSOS}/intruso_{timestamp}_1.jpg", frame_actual)
+    cv2.imwrite(os.path.join(CARPETA_INTRUSOS, f"intruso_{timestamp}_1.jpg"), frame_actual)
     time.sleep(0.3)
     ret, frame_segundo = camara.read()
     if ret:
-        cv2.imwrite(f"{CARPETA_INTRUSOS}/intruso_{timestamp}_2.jpg", frame_segundo)
+        cv2.imwrite(os.path.join(CARPETA_INTRUSOS, f"intruso_{timestamp}_2.jpg"), frame_segundo)

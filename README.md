@@ -8,7 +8,7 @@ Terminal-based facial recognition and user access control system developed with 
 - Role-Based Access: Assigns permission levels (Total, Operador, Invitado) stored locally in JSON format.
 - Continuous Guard Mode: Actively monitors user presence in front of the camera.
 - Intruder Defense: Automatically captures evidence frames and locks the workstation when an unauthorized face is detected.
-- Absence Auto-Lock: Deactivates session when the authenticated user leaves the workstation.
+- Absence Auto-Lock: Deactivates session and reactivates guard mode when the authenticated user is absent for more than 10 seconds.
 
 ## Prerequisites
 
@@ -77,13 +77,14 @@ python autenticador.py
 - When a registered face is detected, the terminal prompts for the user password.
 - Upon successful authentication, the session becomes active and permissions are granted.
 - If an unrecognized face is detected, photographic evidence is stored in `imagenes/intrusos/` and the workstation is locked.
-- If the authenticated user is absent for more than 30 consecutive frames, the session locks and returns to guard mode.
+- If the authenticated user is absent for more than 10 seconds (configurable via `TIEMPO_AUSENCIA_GUARDIA`), the session locks and returns to guard mode.
 - Press 'q' while focusing on the camera feed window to terminate the application.
 
 ## Configuration
 
 Operational settings can be customized in `config.py`:
 - `UMBRAL_COINCIDENCIA`: Matching threshold for template comparison (default: `0.22`). Lower values require closer resemblance.
+- `TIEMPO_AUSENCIA_GUARDIA`: Inactivity time in seconds without detecting a user before reactivating guard mode (default: `10`).
 - `CARPETA_CONFIANZA`: Storage directory for trusted face images (`imagenes/confianza`).
 - `CARPETA_INTRUSOS`: Storage directory for intruder evidence (`imagenes/intrusos`).
 - `ARCHIVO_CONFIG`: Path to the user registry file (`datos/usuarios.json`).
