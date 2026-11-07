@@ -7,7 +7,11 @@ from config import (
     CARPETA_INTRUSOS,
     ARCHIVO_CONFIG,
     RUTA_CASCADE,
-    UMBRAL_COINCIDENCIA
+    UMBRAL_COINCIDENCIA,
+    COLOR_RECUADRO,
+    COLOR_TEXTO,
+    FUENTE,
+    GROSOR
 )
 from vision import (
     cargar_caras_confianza,
@@ -17,27 +21,66 @@ from vision import (
 )
 from sistema import suspender_equipo, guardar_evidencia_intruso
 from usuarios import cargar_usuarios
+from gestos import EvaluadorGestos
 
-def procesar_login_usuario(usuario, datos_sistema):
-    """Verifica credenciales del usuario detectado y muestra permisos de acceso."""
+def verificar_password_texto(usuario, datos_sistema):
+    """Solicita y valida la contraseña escrita del usuario detectado."""
     print(f"\n[AVISO] Usuario de confianza detectado: {usuario.upper()}")
     password_ingresada = input(f"Introduce tu contraseña, {usuario}: ").strip()
 
     info_usuario = datos_sistema.get("usuarios", {}).get(usuario, {})
     if password_ingresada == info_usuario.get("password"):
-        rol = info_usuario.get("rol", "Invitado")
-        print(f"[ACCESO CONCEDIDO] Bienvenido/a {usuario}.")
-        print(f"[PERMISOS ACTIVADOS] Nivel de acceso: {rol}")
-        if rol == "Total":
-            print(" -> Tienes acceso a configuración, terminal y archivos restringidos.")
-        elif rol == "Operador":
-            print(" -> Tienes acceso a ejecución de aplicaciones estándar.")
-        else:
-            print(" -> Modo invitado: Acceso restringido solo lectura.")
+        print("[OK] Contraseña de texto correcta. Iniciando reto de contraseña facial...")
         return True
     else:
         print("[ERROR] Contraseña incorrecta.")
         return False
+
+def mostrar_permisos_usuario(usuario, datos_sistema):
+    """Muestra por terminal el mensaje de bienvenida y el rol asignado."""
+    rol = datos_sistema.get("usuarios", {}).get(usuario, {}).get("rol", "Invitado")
+    print(f"\n[ACCESO CONCEDIDO] Bienvenido/a {usuario}.")
+    print(f"[PERMISOS ACTIVADOS] Nivel de acceso: {rol}")
+    if rol == "Total":
+        print(" -> Tienes acceso a configuración, terminal y archivos restringidos.")
+    elif rol == "Operador":
+        print(" -> Tienes acceso a ejecución de aplicaciones estándar.")
+    else:
+        print(" -> Modo invitado: Acceso restringido solo lectura.")
+
+def validar_contrasena_facial(camara, clasificador):
+    """
+    Ejecuta el reto de 3 gestos aleatorios en la ventana de la camara.
+    Retorna True si el usuario supera la prueba de vida, o False en caso de timeout.
+    """
+    evaluador = EvaluadorGestos()
+    print("[PRUEBA DE VIDA] Sigue las instrucciones que aparecen en la ventana de la camara.")
+
+    while True:
+        ret, frame = camara.read()
+        if not ret:
+            return False
+        frame = cv2.flip(frame, 1)
+
+        caras, _ = detectar_caras(frame, clasificador)
+        if len(caras) > 0:
+            estado_reto, frame_hud = evaluador.procesar_fotograma(frame, caras[0])
+            if estado_reto == "EXITO":
+                cv2.putText(frame_hud, "ACCESO AUTORIZADO", (frame.shape[1] // 4, frame.shape[0] // 2),
+                            FUENTE, 1.0, (0, 255, 0), 3)
+                cv2.imshow("Autenticador Facial", frame_hud)
+                cv2.waitKey(600)
+                return True
+            elif estado_reto == "TIMEOUT":
+                return False
+        else:
+            frame_hud = frame.copy()
+            cv2.putText(frame_hud, "SITUATE FRENTE A LA CAMARA", (20, 60),
+                        FUENTE, 0.7, (0, 0, 255), 2)
+
+        cv2.imshow("Autenticador Facial", frame_hud)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            return False
 
 def ejecutar_guardia():
     """Inicia el ciclo principal de vigilancia y autenticacion continua."""
@@ -67,29 +110,57 @@ def ejecutar_guardia():
         if not ret:
             print("[ERROR] No es posible obtener la imagen de la cámara.")
             break
+        frame = cv2.flip(frame, 1)
 
+        frame_mostrar = frame.copy()
         caras, frame_byn = detectar_caras(frame, clasificador)
 
-        # Modo vigilancia (sesion inactiva)
+        # -------------------------------------------------------------
+        # ESTADO 1: SESIÓN INACTIVA (MODO GUARDIA)
+        # -------------------------------------------------------------
         if not estado_sesion:
+            cv2.putText(frame_mostrar, "MODO GUARDIA: VIGILANDO", (20, 40), FUENTE, 0.7, (0, 255, 0), GROSOR)
+
             if len(caras) > 0:
                 x, y, ancho, alto = caras[0]
+                cv2.rectangle(frame_mostrar, (x, y), (x + ancho, y + alto), COLOR_RECUADRO, GROSOR)
                 roi_cara = frame_byn[y:y+alto, x:x+ancho]
                 usuario, score = identificar_rostro(roi_cara, lista_nombres, lista_caras)
 
                 if usuario is not None and usuario in datos_sistema.get("usuarios", {}):
-                    if procesar_login_usuario(usuario, datos_sistema):
-                        estado_sesion = True
-                        usuario_autenticado = usuario
-                        frames_sin_persona = 0
+                    # Actualizar ventana antes de pedir la contraseña por terminal
+                    cv2.putText(frame_mostrar, f"Usuario: {usuario.upper()}", (x, y - 10), FUENTE, 0.6, COLOR_TEXTO, 2)
+                    cv2.imshow("Autenticador Facial", frame_mostrar)
+                    cv2.waitKey(1)
+
+                    # 1. Comprobacion de contraseña de texto
+                    if verificar_password_texto(usuario, datos_sistema):
+                        # 2. Comprobacion de contraseña facial (Reto de 3 gestos aleatorios)
+                        if validar_contrasena_facial(camara, clasificador):
+                            mostrar_permisos_usuario(usuario, datos_sistema)
+                            estado_sesion = True
+                            usuario_autenticado = usuario
+                            frames_sin_persona = 0
+                        else:
+                            print("\n[ALERTA INTRUSO] Prueba de gestos no superada o tiempo agotado.")
+                            guardar_evidencia_intruso(camara, frame)
+                            suspender_equipo()
+                            time.sleep(5)
                 else:
+                    cv2.imshow("Autenticador Facial", frame_mostrar)
+                    cv2.waitKey(1)
                     print("\n[ALERTA INTRUSO] Persona no autorizada detectada frente al equipo.")
                     guardar_evidencia_intruso(camara, frame)
                     suspender_equipo()
                     time.sleep(5)
 
-        # Modo sesion activa (control de presencia)
+        # -------------------------------------------------------------
+        # ESTADO 2: SESIÓN ACTIVA (EL USUARIO YA ACCEDIÓ)
+        # -------------------------------------------------------------
         else:
+            texto_sesion = f"SESION ACTIVA: {usuario_autenticado.upper()}"
+            cv2.putText(frame_mostrar, texto_sesion, (20, 40), FUENTE, 0.7, (0, 255, 255), GROSOR)
+
             if len(caras) == 0:
                 frames_sin_persona += 1
                 if frames_sin_persona > 30:
@@ -99,8 +170,11 @@ def ejecutar_guardia():
                     frames_sin_persona = 0
             else:
                 frames_sin_persona = 0
+                x, y, ancho, alto = caras[0]
+                cv2.rectangle(frame_mostrar, (x, y), (x + ancho, y + alto), (0, 255, 0), GROSOR)
 
-        if cv2.waitKey(30) == ord('q'):
+        cv2.imshow("Autenticador Facial", frame_mostrar)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
             print("Cerrando autenticador...")
             break
 

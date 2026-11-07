@@ -44,6 +44,7 @@ def capturar_poses_usuario(nombre_usuario):
                 camara.release()
                 cv2.destroyAllWindows()
                 return False
+            frame = cv2.flip(frame, 1)
 
             frame_mostrar = frame.copy()
             caras, frame_byn = detectar_caras(frame, clasificador)

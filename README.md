@@ -6,6 +6,7 @@ Terminal-based facial recognition and user access control system developed with 
 
 - Facial Profile Registration: Administrative assistant to capture multi-angle facial reference templates (front normal, smiling, left and right profiles).
 - Role-Based Access: Assigns permission levels (Total, Operador, Invitado) stored locally in JSON format.
+- Facial Gesture Liveness Challenge: Dynamic 3-gesture sequence (eyebrows, eyes, mouth) to verify live presence and prevent photograph spoofing.
 - Continuous Guard Mode: Actively monitors user presence in front of the camera.
 - Intruder Defense: Automatically captures evidence frames and locks the workstation when an unauthorized face is detected.
 - Absence Auto-Lock: Deactivates session when the authenticated user leaves the workstation.
@@ -43,9 +44,10 @@ Terminal-based facial recognition and user access control system developed with 
 
 ## Project Structure
 
-- `autenticador.py`: Main entry point for continuous surveillance and authentication.
+- `autenticador.py`: Main entry point for continuous surveillance, authentication, and liveness challenge.
 - `creador_perfiles.py`: Administrative CLI utility to register users and facial reference templates.
-- `config.py`: Centralized configuration (directories, threshold values, visual styles).
+- `config.py`: Centralized configuration (directories, threshold values, visual styles, gesture settings).
+- `gestos.py`: Facial ROI segmentation, feature tracking, and gesture classification for liveness detection.
 - `vision.py`: Face detection and template matching routines using OpenCV.
 - `usuarios.py`: Data persistence and credential management (`datos/usuarios.json`).
 - `sistema.py`: Platform-specific screen locking and intruder evidence capture.
