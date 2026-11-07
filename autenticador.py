@@ -9,10 +9,12 @@ from config import (
     RUTA_CASCADE,
     UMBRAL_COINCIDENCIA,
     TIEMPO_AUSENCIA_GUARDIA,
+    TIEMPO_MAXIMO_GESTO,
     COLOR_RECUADRO,
     COLOR_TEXTO,
     FUENTE,
-    GROSOR
+    GROSOR,
+    AUDIO_ERROR
 )
 from vision import (
     cargar_caras_confianza,
@@ -20,7 +22,7 @@ from vision import (
     obtener_clasificador,
     detectar_caras
 )
-from sistema import suspender_equipo, guardar_evidencia_intruso
+from sistema import suspender_equipo, guardar_evidencia_intruso, reproducir_audio
 from usuarios import cargar_usuarios, inicializar_entorno, obtener_usuario
 from gestos import EvaluadorGestos
 
@@ -80,9 +82,24 @@ def validar_contrasena_facial(camara, clasificador):
                 cv2.waitKey(600)
                 return True
             elif estado_reto == "TIMEOUT":
+                reproducir_audio(AUDIO_ERROR)
+                cv2.putText(frame_hud, "TIEMPO AGOTADO - BLOQUEANDO", (frame.shape[1] // 6, frame.shape[0] // 2),
+                            FUENTE, 0.8, (0, 0, 255), 2)
+                cv2.imshow("Autenticador Facial", frame_hud)
+                cv2.waitKey(800)
                 return False
         else:
             frame_hud = frame.copy()
+            if evaluador.calibrado and evaluador.tiempo_inicio_gesto is not None:
+                tiempo_restante = max(0.0, TIEMPO_MAXIMO_GESTO - (time.time() - evaluador.tiempo_inicio_gesto))
+                if tiempo_restante <= 0.0:
+                    reproducir_audio(AUDIO_ERROR)
+                    cv2.putText(frame_hud, "TIEMPO AGOTADO - BLOQUEANDO", (frame.shape[1] // 6, frame.shape[0] // 2),
+                                FUENTE, 0.8, (0, 0, 255), 2)
+                    cv2.imshow("Autenticador Facial", frame_hud)
+                    cv2.waitKey(800)
+                    return False
+
             cv2.putText(frame_hud, "SITUATE FRENTE A LA CAMARA", (20, 60),
                         FUENTE, 0.7, (0, 0, 255), 2)
 
@@ -153,6 +170,7 @@ def ejecutar_guardia():
                             else:
                                 print("\n[ALERTA INTRUSO] Prueba de gestos no superada o tiempo agotado.")
                                 guardar_evidencia_intruso(camara, frame)
+                                time.sleep(1.0)
                                 suspender_equipo()
                                 time.sleep(5)
                     else:
