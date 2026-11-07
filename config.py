@@ -16,6 +16,10 @@ AUDIO_SUCCESS = os.path.join(CARPETA_AUDIOS, "success.mp3")
 AUDIO_ERROR = os.path.join(CARPETA_AUDIOS, "error.mp3")
 
 # Parametros de comparacion facial y presencia
+TAM_CARA = (120, 120)              # Dimension fija para normalizacion de rostros
+MARGEN_RECORTE_CARA = 0.08         # Fraccion de margen a descartar en bordes (8 %)
+ALINEAR_OJOS = True                # Interruptor para activar/desactivar alineacion por ojos
+ANGULO_MAXIMO_ALINEACION = 25      # Grados maximos de inclinacion admitidos para rotar
 UMBRAL_COINCIDENCIA = 0.22
 TIEMPO_AUSENCIA_GUARDIA = 10  # Tiempo en segundos sin detectar usuario antes de reactivar la guardia
 AREA_MINIMA_CARA = 8000       # Area minima (ancho * alto) para descartar detecciones falsas
@@ -43,11 +47,10 @@ TIEMPO_MAXIMO_GESTO = 30.0         # Segundos permitidos por cada gesto
 FRAMES_CONFIRMACION_GESTO = 8      # Fotogramas consecutivos requeridos para confirmar
 FRAMES_CALIBRACION = 12            # Fotogramas iniciales para calibrar rostro neutro
 
-# Parametros para deteccion autonoma de ojos
-FACTOR_APERTURA_STD = 0.40         # Fraccion minima de la desviacion estandar neutra
-FACTOR_APERTURA_RANGO = 0.40       # Fraccion minima del rango dinamico (p90 - p10) neutro
-ALTURA_MINIMA_IRIS_ABIERTO = 5     # Altura vertical minima en pixeles del iris abierto
-ASPECTO_MINIMO_IRIS_ABIERTO = 0.22 # Relacion de aspecto minima (h/w) para descartar pestañas
+# Parametros para deteccion de ojos (Regla K y ventana temporal)
+FACTOR_K_CIERRE_OJO = 0.78          # Fraccion del aspecto neutro para considerar ojo cerrado
+VENTANA_TEMPORAL_GESTO = 8          # Tamano de la ventana deslizante para gestos de ojos
+MIN_FRAMES_CONFIRMACION_GESTO = 6   # Fotogramas minimos requeridos dentro de la ventana
 
 # Discriminacion colorimetrica de esmalte dental
 DIF_MAXIMA_ROJO_AZUL_DIENTES = 35  # Diferencia maxima |R - B| para aceptar tono marfil neutro
