@@ -123,6 +123,36 @@ def dibujar_interfaz_usuario(frame, usuario, rol, stats, duracion_actual, mostra
             cv2.putText(frame, valor, (x1 + 220, y_offset), cv2.FONT_HERSHEY_DUPLEX, 0.42, col_val, 1)
             y_offset += 24
 
+def dibujar_barra_progreso(frame, x, y, ancho, alto, porcentaje, color_barra):
+    """Dibuja una barra horizontal de progreso con fondo oscuro y borde."""
+    cv2.rectangle(frame, (x, y), (x + ancho, y + alto), (50, 50, 50), -1)
+    if porcentaje > 0:
+        ancho_lleno = int(ancho * (min(100, max(0, porcentaje)) / 100.0))
+        cv2.rectangle(frame, (x, y), (x + ancho_lleno, y + alto), color_barra, -1)
+    cv2.rectangle(frame, (x, y), (x + ancho, y + alto), (100, 100, 100), 1)
+
+def actualizar_estabilidad_facial(caja_actual, ultima_caja, frame_byn, frames_estables):
+    """
+    Determina si el rostro se mantiene estatico y actualiza el contador acumulador
+    aplicando penalizacion de histeresis (-2) en caso de movimiento.
+    Retorna (es_estable, nuevo_contador_frames).
+    """
+    es_estable = verificar_rostro_estatico(caja_actual, ultima_caja, frame_byn)
+    if es_estable:
+        nuevo_contador = frames_estables + 1
+    else:
+        nuevo_contador = max(0, frames_estables - 2)
+    return es_estable, nuevo_contador
+
+def dibujar_feedback_estabilizacion(frame, caja, progreso, texto_titulo="ESTABILIZANDO ROSTRO", pos_banner=(20, 40)):
+    """Renderiza el recuadro, etiqueta y barra de progreso de estabilizacion facial."""
+    x, y, ancho, alto = caja
+    color_estabilidad = (0, 255, 255) if progreso > 0 else (0, 165, 255)
+    cv2.rectangle(frame, (x, y), (x + ancho, y + alto), color_estabilidad, GROSOR)
+    cv2.putText(frame, f"{texto_titulo}: {progreso}%", pos_banner, FUENTE, 0.65, color_estabilidad, GROSOR)
+    cv2.putText(frame, "MANTENTE QUIETO Y MIRA A CAMARA", (x, max(20, y - 10)), FUENTE, 0.50, color_estabilidad, 2)
+    dibujar_barra_progreso(frame, x, y + alto + 10, ancho, 6, progreso, color_estabilidad)
+
 def verificar_password_texto(usuario, datos_sistema=None):
     """Solicita y valida la contraseña escrita del usuario detectado."""
     print(f"\n[AVISO] Usuario de confianza detectado: {usuario.upper()}")
@@ -235,6 +265,35 @@ def ejecutar_guardia():
     contador_frames_sesion = 0
     frames_estables = 0
     ultima_caja = None
+    frames_estables_retorno = 0
+    ultima_caja_retorno = None
+
+    def resetear_estado_sesion():
+        """Restablece todas las variables de sesion y guardia a su estado inicial."""
+        nonlocal estado_sesion, usuario_autenticado, plantillas_usuario_activo
+        nonlocal tiempo_inicio_sesion, tiempo_inicio_ausencia, ultimo_tiempo_ausencia
+        nonlocal verificando_retorno, buffer_scores_retorno, tiempo_confirmacion_retorno
+        nonlocal mostrar_detalles, stats_usuario, historial_similitud_sesion
+        nonlocal contador_frames_sesion, frames_estables, ultima_caja
+        nonlocal frames_estables_retorno, ultima_caja_retorno
+
+        estado_sesion = False
+        usuario_autenticado = None
+        plantillas_usuario_activo = []
+        tiempo_inicio_sesion = None
+        tiempo_inicio_ausencia = None
+        ultimo_tiempo_ausencia = 0.0
+        verificando_retorno = False
+        buffer_scores_retorno = []
+        tiempo_confirmacion_retorno = 0.0
+        mostrar_detalles = False
+        stats_usuario = {}
+        historial_similitud_sesion = []
+        contador_frames_sesion = 0
+        frames_estables = 0
+        ultima_caja = None
+        frames_estables_retorno = 0
+        ultima_caja_retorno = None
 
     try:
         while True:
@@ -259,31 +318,14 @@ def ejecutar_guardia():
                     caja_actual = caras[0]
                     x, y, ancho, alto = caja_actual
 
-                    es_estable = verificar_rostro_estatico(caja_actual, ultima_caja, frame_byn)
+                    _, frames_estables = actualizar_estabilidad_facial(
+                        caja_actual, ultima_caja, frame_byn, frames_estables
+                    )
                     ultima_caja = caja_actual
-
-                    if es_estable:
-                        frames_estables += 1
-                    else:
-                        frames_estables = max(0, frames_estables - 2)
-
                     progreso = min(100, int((frames_estables / FRAMES_ESTABILIDAD_GUARDIA) * 100))
 
                     if frames_estables < FRAMES_ESTABILIDAD_GUARDIA:
-                        # Fase de estabilizacion: no se comprueba identidad ni intruso todavia
-                        color_estabilidad = (0, 255, 255) if frames_estables > 0 else (0, 165, 255)
-                        cv2.rectangle(frame_mostrar, (x, y), (x + ancho, y + alto), color_estabilidad, GROSOR)
-                        cv2.putText(frame_mostrar, f"ESTABILIZANDO ROSTRO: {progreso}%", (20, 40), FUENTE, 0.65, color_estabilidad, GROSOR)
-                        cv2.putText(frame_mostrar, "MANTENTE QUIETO Y MIRA A CAMARA", (x, max(20, y - 10)), FUENTE, 0.50, color_estabilidad, 2)
-
-                        # Barra de progreso visual
-                        ancho_barra = ancho
-                        alto_barra = 6
-                        x_b = x
-                        y_b = y + alto + 10
-                        cv2.rectangle(frame_mostrar, (x_b, y_b), (x_b + ancho_barra, y_b + alto_barra), (50, 50, 50), -1)
-                        if progreso > 0:
-                            cv2.rectangle(frame_mostrar, (x_b, y_b), (x_b + int(ancho_barra * (progreso / 100.0)), y_b + alto_barra), color_estabilidad, -1)
+                        dibujar_feedback_estabilizacion(frame_mostrar, caja_actual, progreso, "ESTABILIZANDO ROSTRO")
                     else:
                         # Fase de verificacion: rostro confirmado estatico y frontal
                         cv2.rectangle(frame_mostrar, (x, y), (x + ancho, y + alto), COLOR_RECUADRO, GROSOR)
@@ -324,6 +366,8 @@ def ejecutar_guardia():
                                     contador_frames_sesion = 0
                                     frames_estables = 0
                                     ultima_caja = None
+                                    frames_estables_retorno = 0
+                                    ultima_caja_retorno = None
                                 else:
                                     print("\n[ALERTA INTRUSO] Prueba de gestos no superada o tiempo agotado.")
                                     guardar_evidencia_intruso(camara, frame)
@@ -358,29 +402,38 @@ def ejecutar_guardia():
                     tiempo_ausente = time.time() - tiempo_inicio_ausencia
                     ultimo_tiempo_ausencia = tiempo_ausente
 
+                    # Reiniciar acumuladores de retorno si el rostro se retira
+                    frames_estables_retorno = 0
+                    ultima_caja_retorno = None
+                    buffer_scores_retorno = []
+
+                    tiempo_restante_guardia = max(0.0, TIEMPO_AUSENCIA_GUARDIA - tiempo_ausente)
+                    porcentaje_guardia = (tiempo_restante_guardia / TIEMPO_AUSENCIA_GUARDIA) * 100.0
+
+                    # Banner de cuenta regresiva de la guardia de ausencia (10s)
+                    ancho_f, alto_f = frame_mostrar.shape[1], frame_mostrar.shape[0]
+                    y_banner = alto_f - 75
+                    cv2.rectangle(frame_mostrar, (15, y_banner), (ancho_f - 15, alto_f - 15), (20, 20, 60), -1)
+                    cv2.rectangle(frame_mostrar, (15, y_banner), (ancho_f - 15, alto_f - 15), (0, 165, 255), 2)
+                    cv2.putText(frame_mostrar, f"GUARDIA DE AUSENCIA: TIEMPO RESTANTE {tiempo_restante_guardia:.1f}s",
+                                (25, y_banner + 26), FUENTE, 0.60, (0, 165, 255), 2)
+                    cv2.putText(frame_mostrar, "Vuelve frente a la camara antes de 10s para reanudar sesion",
+                                (25, y_banner + 46), FUENTE, 0.42, (200, 200, 200), 1)
+                    dibujar_barra_progreso(frame_mostrar, 25, y_banner + 52, ancho_f - 50, 4, porcentaje_guardia, (0, 165, 255))
+
                     if tiempo_ausente >= TIEMPO_AUSENCIA_GUARDIA:
                         print(f"\n[BLOQUEO] Usuario '{usuario_autenticado}' ausente durante {int(tiempo_ausente)} segundos. Reactivando guardia...")
                         registrar_fin_sesion(usuario_autenticado, duracion_actual)
-                        estado_sesion = False
-                        usuario_autenticado = None
-                        plantillas_usuario_activo = []
-                        tiempo_inicio_ausencia = None
-                        tiempo_inicio_sesion = None
-                        ultimo_tiempo_ausencia = 0.0
-                        verificando_retorno = False
-                        buffer_scores_retorno = []
-                        tiempo_confirmacion_retorno = 0.0
-                        mostrar_detalles = False
-                        historial_similitud_sesion = []
-                        contador_frames_sesion = 0
-                        frames_estables = 0
-                        ultima_caja = None
+                        resetear_estado_sesion()
                 else:
-                    x, y, ancho, alto = caras[0]
+                    caja_actual = caras[0]
+                    x, y, ancho, alto = caja_actual
 
                     # Si hubo ausencia previa que supero el tiempo minimo de disparo (1.0s)
                     if tiempo_inicio_ausencia is not None and ultimo_tiempo_ausencia >= TIEMPO_DISPARO_REENGANCHE:
                         verificando_retorno = True
+                        frames_estables_retorno = 0
+                        ultima_caja_retorno = None
                         buffer_scores_retorno = []
 
                     tiempo_inicio_ausencia = None
@@ -391,46 +444,53 @@ def ejecutar_guardia():
                     # CASO A: FASE DE VERIFICACION DE RETORNO (ANTI-USURPACION)
                     # ---------------------------------------------------------
                     if verificando_retorno:
-                        roi_cara = normalizar_cara(frame_byn, caja=caras[0])
-                        coincide_frame, score_frame, _ = verificar_usuario_especifico(
-                            roi_cara, plantillas_usuario_activo, UMBRAL_REENGANCHE_SESION
-                        )
-                        buffer_scores_retorno.append(score_frame)
+                        # Subfase 1: Calibracion y estabilizacion facial
+                        if frames_estables_retorno < FRAMES_ESTABILIDAD_GUARDIA:
+                            _, frames_estables_retorno = actualizar_estabilidad_facial(
+                                caja_actual, ultima_caja_retorno, frame_byn, frames_estables_retorno
+                            )
+                            ultima_caja_retorno = caja_actual
+                            progreso_est = min(100, int((frames_estables_retorno / FRAMES_ESTABILIDAD_GUARDIA) * 100))
+                            dibujar_feedback_estabilizacion(
+                                frame_mostrar, caja_actual, progreso_est, "CALIBRANDO RETORNO",
+                                pos_banner=(20, frame_mostrar.shape[0] - 25)
+                            )
+                        else:
+                            # Subfase 2: Verificacion de identidad con rostro estabilizado
+                            roi_cara = normalizar_cara(frame_byn, caja=caja_actual)
+                            coincide_frame, score_frame, _ = verificar_usuario_especifico(
+                                roi_cara, plantillas_usuario_activo, UMBRAL_REENGANCHE_SESION
+                            )
+                            buffer_scores_retorno.append(score_frame)
 
-                        progreso_ret = min(100, int((len(buffer_scores_retorno) / FRAMES_CONFIRMACION_RETORNO) * 100))
-                        cv2.rectangle(frame_mostrar, (x, y), (x + ancho, y + alto), (0, 255, 255), GROSOR)
-                        cv2.putText(frame_mostrar, f"VERIFICANDO RETORNO: {progreso_ret}%", (x, max(20, y - 10)), FUENTE, 0.50, (0, 255, 255), 2)
+                            progreso_ret = min(100, int((len(buffer_scores_retorno) / FRAMES_CONFIRMACION_RETORNO) * 100))
+                            color_verif = (0, 255, 255)
+                            cv2.rectangle(frame_mostrar, (x, y), (x + ancho, y + alto), color_verif, GROSOR)
+                            cv2.putText(frame_mostrar, f"VERIFICANDO IDENTIDAD: {progreso_ret}%",
+                                        (20, frame_mostrar.shape[0] - 25), FUENTE, 0.65, color_verif, GROSOR)
+                            cv2.putText(frame_mostrar, f"VALIDANDO A {usuario_autenticado.upper()}",
+                                        (x, max(20, y - 10)), FUENTE, 0.50, color_verif, 2)
+                            dibujar_barra_progreso(frame_mostrar, x, y + alto + 10, ancho, 6, progreso_ret, color_verif)
 
-                        if len(buffer_scores_retorno) >= FRAMES_CONFIRMACION_RETORNO:
-                            score_medio = float(np.mean(buffer_scores_retorno))
-                            if score_medio < UMBRAL_REENGANCHE_SESION:
-                                verificando_retorno = False
-                                buffer_scores_retorno = []
-                                tiempo_confirmacion_retorno = time.time()
-                            else:
-                                cv2.rectangle(frame_mostrar, (x, y), (x + ancho, y + alto), (0, 0, 255), GROSOR)
-                                cv2.putText(frame_mostrar, "ALERTA: USURPACION DE SESION", (20, 80), FUENTE, 0.70, (0, 0, 255), 2)
-                                cv2.imshow("Autenticador Facial", frame_mostrar)
-                                cv2.waitKey(1)
-                                print(f"\n[ALERTA INTRUSO] Intento de usurpación en la sesión de '{usuario_autenticado}'. Score: {score_medio:.4f}")
-                                guardar_evidencia_intruso(camara, frame)
-                                registrar_fin_sesion(usuario_autenticado, duracion_actual)
-                                suspender_equipo()
-                                time.sleep(5)
-                                estado_sesion = False
-                                usuario_autenticado = None
-                                plantillas_usuario_activo = []
-                                tiempo_inicio_ausencia = None
-                                tiempo_inicio_sesion = None
-                                ultimo_tiempo_ausencia = 0.0
-                                verificando_retorno = False
-                                buffer_scores_retorno = []
-                                tiempo_confirmacion_retorno = 0.0
-                                mostrar_detalles = False
-                                historial_similitud_sesion = []
-                                contador_frames_sesion = 0
-                                frames_estables = 0
-                                ultima_caja = None
+                            if len(buffer_scores_retorno) >= FRAMES_CONFIRMACION_RETORNO:
+                                score_medio = float(np.mean(buffer_scores_retorno))
+                                if score_medio < UMBRAL_REENGANCHE_SESION:
+                                    verificando_retorno = False
+                                    frames_estables_retorno = 0
+                                    ultima_caja_retorno = None
+                                    buffer_scores_retorno = []
+                                    tiempo_confirmacion_retorno = time.time()
+                                else:
+                                    cv2.rectangle(frame_mostrar, (x, y), (x + ancho, y + alto), (0, 0, 255), GROSOR)
+                                    cv2.putText(frame_mostrar, "ALERTA: USURPACION DE SESION", (20, 80), FUENTE, 0.70, (0, 0, 255), 2)
+                                    cv2.imshow("Autenticador Facial", frame_mostrar)
+                                    cv2.waitKey(1)
+                                    print(f"\n[ALERTA INTRUSO] Intento de usurpación en la sesión de '{usuario_autenticado}'. Score: {score_medio:.4f}")
+                                    guardar_evidencia_intruso(camara, frame)
+                                    registrar_fin_sesion(usuario_autenticado, duracion_actual)
+                                    suspender_equipo()
+                                    time.sleep(5)
+                                    resetear_estado_sesion()
 
                     # ---------------------------------------------------------
                     # CASO B: OPERACION NORMAL DE SESION ACTIVA
