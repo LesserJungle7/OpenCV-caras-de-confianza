@@ -11,7 +11,9 @@ from config import (
     TAM_CARA,
     MARGEN_RECORTE_CARA,
     ALINEAR_OJOS,
-    ANGULO_MAXIMO_ALINEACION
+    ANGULO_MAXIMO_ALINEACION,
+    UMBRAL_MOVIMIENTO_ESTABLE,
+    VARIANZA_MINIMA_TEXTURA
 )
 
 # Instancias globales a nivel de modulo
@@ -153,6 +155,51 @@ def detectar_caras(frame, clasificador=None, scale_factor=1.15, min_neighbors=5,
             caras_filtradas.append((x, y, ancho, alto))
 
     return caras_filtradas, frame_byn
+
+def verificar_rostro_estatico(caja_actual, caja_previa, frame_gris):
+    """
+    Determina si un rostro detectado se mantiene quieto, frontal y sin oclusiones.
+    Evalua relacion de aspecto, desplazamiento entre fotogramas y nitidez/textura minima.
+    """
+    x, y, w, h = caja_actual
+    if w <= 0 or h <= 0:
+        return False
+
+    # 1. Proporcion frontal: un rostro humano frontal tiene relacion w/h entre 0.70 y 1.30
+    aspect_ratio = float(w) / float(h)
+    if not (0.70 <= aspect_ratio <= 1.30):
+        return False
+
+    # 2. Desplazamiento respecto al fotograma previo
+    if caja_previa is not None:
+        px, py, pw, ph = caja_previa
+        cx_actual = x + w / 2.0
+        cy_actual = y + h / 2.0
+        cx_prev = px + pw / 2.0
+        cy_prev = py + ph / 2.0
+
+        dist_desplazamiento = np.hypot(cx_actual - cx_prev, cy_actual - cy_prev)
+        if dist_desplazamiento > UMBRAL_MOVIMIENTO_ESTABLE:
+            return False
+
+        # Descarte de variaciones abruptas de tamano (mayor al 20 %)
+        var_w = abs(w - pw) / float(max(w, pw))
+        var_h = abs(h - ph) / float(max(h, ph))
+        if var_w > 0.20 or var_h > 0.20:
+            return False
+
+    # 3. Varianza de textura: descarta regiones homogeneas o manos tapando la lente
+    y1, y2 = max(0, y), min(frame_gris.shape[0], y + h)
+    x1, x2 = max(0, x), min(frame_gris.shape[1], x + w)
+    roi = frame_gris[y1:y2, x1:x2]
+    if roi.size == 0:
+        return False
+
+    varianza_laplaciana = cv2.Laplacian(roi, cv2.CV_64F).var()
+    if varianza_laplaciana < VARIANZA_MINIMA_TEXTURA:
+        return False
+
+    return True
 
 def alinear_ojos(cara):
     """

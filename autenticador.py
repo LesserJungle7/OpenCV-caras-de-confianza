@@ -11,6 +11,7 @@ from config import (
     UMBRAL_COINCIDENCIA,
     TIEMPO_AUSENCIA_GUARDIA,
     TIEMPO_MAXIMO_GESTO,
+    FRAMES_ESTABILIDAD_GUARDIA,
     COLOR_RECUADRO,
     COLOR_TEXTO,
     FUENTE,
@@ -22,7 +23,8 @@ from vision import (
     identificar_rostro,
     obtener_clasificador,
     detectar_caras,
-    normalizar_cara
+    normalizar_cara,
+    verificar_rostro_estatico
 )
 from sistema import suspender_equipo, guardar_evidencia_intruso, reproducir_audio
 from usuarios import (
@@ -221,6 +223,8 @@ def ejecutar_guardia():
     stats_usuario = {}
     historial_similitud_sesion = []
     contador_frames_sesion = 0
+    frames_estables = 0
+    ultima_caja = None
 
     try:
         while True:
@@ -237,55 +241,94 @@ def ejecutar_guardia():
             # ESTADO 1: SESIÓN INACTIVA (MODO GUARDIA)
             # -------------------------------------------------------------
             if not estado_sesion:
-                cv2.putText(frame_mostrar, "MODO GUARDIA: VIGILANDO", (20, 40), FUENTE, 0.7, (0, 255, 0), GROSOR)
+                if len(caras) == 0:
+                    frames_estables = 0
+                    ultima_caja = None
+                    cv2.putText(frame_mostrar, "MODO GUARDIA: VIGILANDO", (20, 40), FUENTE, 0.7, (0, 255, 0), GROSOR)
+                else:
+                    caja_actual = caras[0]
+                    x, y, ancho, alto = caja_actual
 
-                if len(caras) > 0:
-                    x, y, ancho, alto = caras[0]
-                    cv2.rectangle(frame_mostrar, (x, y), (x + ancho, y + alto), COLOR_RECUADRO, GROSOR)
-                    roi_cara = normalizar_cara(frame_byn, caja=caras[0])
-                    usuario, score = identificar_rostro(roi_cara, lista_nombres, lista_caras)
+                    es_estable = verificar_rostro_estatico(caja_actual, ultima_caja, frame_byn)
+                    ultima_caja = caja_actual
 
-                    if usuario is None:
-                        # Recarga en caliente ante nuevo usuario registrado durante la ejecucion
-                        lista_nombres, lista_caras = cargar_caras_confianza()
-                        datos_sistema = cargar_usuarios()
-                        usuario, score = identificar_rostro(roi_cara, lista_nombres, lista_caras)
-                    elif usuario not in datos_sistema.get("usuarios", {}):
-                        datos_sistema = cargar_usuarios()
-
-                    if usuario is not None and usuario in datos_sistema.get("usuarios", {}):
-                        cv2.putText(frame_mostrar, f"Usuario: {usuario.upper()}", (x, y - 10), FUENTE, 0.6, COLOR_TEXTO, 2)
-                        cv2.imshow("Autenticador Facial", frame_mostrar)
-                        cv2.waitKey(1)
-
-                        # Validacion de contrasena de texto y posterior reto facial
-                        if verificar_password_texto(usuario, datos_sistema):
-                            if validar_contrasena_facial(camara, clasificador):
-                                mostrar_permisos_usuario(usuario, datos_sistema)
-                                # Similitud obtenida mediante Template Matching en escala de grises
-                                similitud_login = max(0.0, min(100.0, (1.0 - score) * 100.0))
-                                registrar_inicio_sesion(usuario, similitud_inicial=similitud_login)
-                                stats_usuario = obtener_estadisticas_usuario(usuario)
-                                estado_sesion = True
-                                usuario_autenticado = usuario
-                                tiempo_inicio_sesion = time.time()
-                                tiempo_inicio_ausencia = None
-                                mostrar_detalles = False
-                                historial_similitud_sesion = [similitud_login]
-                                contador_frames_sesion = 0
-                            else:
-                                print("\n[ALERTA INTRUSO] Prueba de gestos no superada o tiempo agotado.")
-                                guardar_evidencia_intruso(camara, frame)
-                                time.sleep(1.0)
-                                suspender_equipo()
-                                time.sleep(5)
+                    if es_estable:
+                        frames_estables += 1
                     else:
-                        cv2.imshow("Autenticador Facial", frame_mostrar)
-                        cv2.waitKey(1)
-                        print("\n[ALERTA INTRUSO] Persona no autorizada detectada frente al equipo.")
-                        guardar_evidencia_intruso(camara, frame)
-                        suspender_equipo()
-                        time.sleep(5)
+                        frames_estables = max(0, frames_estables - 2)
+
+                    progreso = min(100, int((frames_estables / FRAMES_ESTABILIDAD_GUARDIA) * 100))
+
+                    if frames_estables < FRAMES_ESTABILIDAD_GUARDIA:
+                        # Fase de estabilizacion: no se comprueba identidad ni intruso todavia
+                        color_estabilidad = (0, 255, 255) if frames_estables > 0 else (0, 165, 255)
+                        cv2.rectangle(frame_mostrar, (x, y), (x + ancho, y + alto), color_estabilidad, GROSOR)
+                        cv2.putText(frame_mostrar, f"ESTABILIZANDO ROSTRO: {progreso}%", (20, 40), FUENTE, 0.65, color_estabilidad, GROSOR)
+                        cv2.putText(frame_mostrar, "MANTENTE QUIETO Y MIRA A CAMARA", (x, max(20, y - 10)), FUENTE, 0.50, color_estabilidad, 2)
+
+                        # Barra de progreso visual
+                        ancho_barra = ancho
+                        alto_barra = 6
+                        x_b = x
+                        y_b = y + alto + 10
+                        cv2.rectangle(frame_mostrar, (x_b, y_b), (x_b + ancho_barra, y_b + alto_barra), (50, 50, 50), -1)
+                        if progreso > 0:
+                            cv2.rectangle(frame_mostrar, (x_b, y_b), (x_b + int(ancho_barra * (progreso / 100.0)), y_b + alto_barra), color_estabilidad, -1)
+                    else:
+                        # Fase de verificacion: rostro confirmado estatico y frontal
+                        cv2.rectangle(frame_mostrar, (x, y), (x + ancho, y + alto), COLOR_RECUADRO, GROSOR)
+                        roi_cara = normalizar_cara(frame_byn, caja=caja_actual)
+                        usuario, score = identificar_rostro(roi_cara, lista_nombres, lista_caras)
+
+                        if usuario is None:
+                            # Recarga en caliente ante nuevo usuario registrado durante la ejecucion
+                            lista_nombres, lista_caras = cargar_caras_confianza()
+                            datos_sistema = cargar_usuarios()
+                            usuario, score = identificar_rostro(roi_cara, lista_nombres, lista_caras)
+                        elif usuario not in datos_sistema.get("usuarios", {}):
+                            datos_sistema = cargar_usuarios()
+
+                        if usuario is not None and usuario in datos_sistema.get("usuarios", {}):
+                            cv2.putText(frame_mostrar, f"Usuario: {usuario.upper()}", (x, y - 10), FUENTE, 0.6, COLOR_TEXTO, 2)
+                            cv2.imshow("Autenticador Facial", frame_mostrar)
+                            cv2.waitKey(1)
+
+                            # Validacion de contrasena de texto y posterior reto facial
+                            if verificar_password_texto(usuario, datos_sistema):
+                                if validar_contrasena_facial(camara, clasificador):
+                                    mostrar_permisos_usuario(usuario, datos_sistema)
+                                    similitud_login = max(0.0, min(100.0, (1.0 - score) * 100.0))
+                                    registrar_inicio_sesion(usuario, similitud_inicial=similitud_login)
+                                    stats_usuario = obtener_estadisticas_usuario(usuario)
+                                    estado_sesion = True
+                                    usuario_autenticado = usuario
+                                    tiempo_inicio_sesion = time.time()
+                                    tiempo_inicio_ausencia = None
+                                    mostrar_detalles = False
+                                    historial_similitud_sesion = [similitud_login]
+                                    contador_frames_sesion = 0
+                                    frames_estables = 0
+                                    ultima_caja = None
+                                else:
+                                    print("\n[ALERTA INTRUSO] Prueba de gestos no superada o tiempo agotado.")
+                                    guardar_evidencia_intruso(camara, frame)
+                                    time.sleep(1.0)
+                                    suspender_equipo()
+                                    time.sleep(5)
+                                    frames_estables = 0
+                                    ultima_caja = None
+                            else:
+                                frames_estables = 0
+                                ultima_caja = None
+                        else:
+                            cv2.imshow("Autenticador Facial", frame_mostrar)
+                            cv2.waitKey(1)
+                            print("\n[ALERTA INTRUSO] Persona no autorizada detectada frente al equipo.")
+                            guardar_evidencia_intruso(camara, frame)
+                            suspender_equipo()
+                            time.sleep(5)
+                            frames_estables = 0
+                            ultima_caja = None
 
             # -------------------------------------------------------------
             # ESTADO 2: SESIÓN ACTIVA (EL USUARIO YA ACCEDIÓ)
@@ -308,6 +351,8 @@ def ejecutar_guardia():
                         mostrar_detalles = False
                         historial_similitud_sesion = []
                         contador_frames_sesion = 0
+                        frames_estables = 0
+                        ultima_caja = None
                 else:
                     tiempo_inicio_ausencia = None
                     tiempo_ausente = 0.0

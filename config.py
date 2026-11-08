@@ -20,10 +20,15 @@ TAM_CARA = (120, 120)              # Dimension fija para normalizacion de rostro
 MARGEN_RECORTE_CARA = 0.08         # Fraccion de margen a descartar en bordes (8 %)
 ALINEAR_OJOS = True                # Interruptor para activar/desactivar alineacion por ojos
 ANGULO_MAXIMO_ALINEACION = 25      # Grados maximos de inclinacion admitidos para rotar
-UMBRAL_COINCIDENCIA = 0.22
+UMBRAL_COINCIDENCIA = 0.07
 TIEMPO_AUSENCIA_GUARDIA = 10  # Tiempo en segundos sin detectar usuario antes de reactivar la guardia
 AREA_MINIMA_CARA = 8000       # Area minima (ancho * alto) para descartar detecciones falsas
 BRILLO_OBJETIVO = 120         # Nivel medio de iluminacion deseado calculado con histograma
+
+# Parametros de estabilidad y fijacion de rostro en guardia
+FRAMES_ESTABILIDAD_GUARDIA = 12     # Fotogramas consecutivos con rostro quieto requeridos
+UMBRAL_MOVIMIENTO_ESTABLE = 14      # Desplazamiento maximo en pixeles del centroide entre frames
+VARIANZA_MINIMA_TEXTURA = 65.0      # Varianza minima del Laplaciano para descartar oclusiones lisas
 
 # Gestos disponibles para el reto facial (prueba de vida)
 GESTOS_DISPONIBLES = [
