@@ -1,3 +1,4 @@
+import collections
 import os
 import random
 import time
@@ -5,16 +6,17 @@ import numpy as np
 import cv2
 
 from config import (
+    ALINEAR_OJOS,
+    ANGULO_MAXIMO_ALINEACION,
     RUTA_CASCADE_EYE,
     GESTOS_DISPONIBLES,
     GESTOS_DESCRIPCION,
     TIEMPO_MAXIMO_GESTO,
     FRAMES_CONFIRMACION_GESTO,
     FRAMES_CALIBRACION,
-    FACTOR_APERTURA_STD,
-    FACTOR_APERTURA_RANGO,
-    ALTURA_MINIMA_IRIS_ABIERTO,
-    ASPECTO_MINIMO_IRIS_ABIERTO,
+    FACTOR_K_CIERRE_OJO,
+    VENTANA_TEMPORAL_GESTO,
+    MIN_FRAMES_CONFIRMACION_GESTO,
     DIF_MAXIMA_ROJO_AZUL_DIENTES,
     DIF_MAXIMA_ROJO_VERDE_DIENTES,
     ANCHO_MINIMO_FRANJA_DIENTES,
@@ -24,8 +26,11 @@ from config import (
     COLOR_RETO_ACTIVO,
     COLOR_REGION_ACTIVA,
     COLOR_TEXTO_HUD,
-    FUENTE
+    FUENTE,
+    AUDIO_SUCCESS
 )
+from sistema import reproducir_audio
+from vision import calcular_angulo_ojos
 
 _clasificador_ojos = None
 
@@ -36,36 +41,53 @@ def obtener_clasificador_ojos():
         _clasificador_ojos = cv2.CascadeClassifier(RUTA_CASCADE_EYE)
     return _clasificador_ojos
 
-def extraer_rois(frame, x, y, w, h):
+def extraer_rois(frame, x, y, w, h, angulo=0.0):
     """
     Segmenta las regiones geometricas de cejas, ojos y boca a partir de la cara.
+    Permite aplicar una correccion de rotacion neutra para nivelar horizontalmente los ojos.
     Retorna un diccionario con las imagenes recortadas y sus coordenadas absolutas.
     """
     alto_f, ancho_f = frame.shape[:2]
 
-    def recortar(x1, y1, x2, y2):
+    def recortar(img_fuente, x1, y1, x2, y2):
+        alto_src, ancho_src = img_fuente.shape[:2]
         x1, y1 = max(0, x1), max(0, y1)
-        x2, y2 = min(ancho_f, x2), min(alto_f, y2)
+        x2, y2 = min(ancho_src, x2), min(alto_src, y2)
         if x2 <= x1 or y2 <= y1:
             return None, (x1, y1, 0, 0)
-        return frame[y1:y2, x1:x2], (x1, y1, x2 - x1, y2 - y1)
+        return img_fuente[y1:y2, x1:x2], (x1, y1, x2 - x1, y2 - y1)
 
     # Coordenadas proporcionales desacopladas con zona buffer libre (0.29h - 0.35h)
     cejas_y1, cejas_y2 = int(y + 0.14 * h), int(y + 0.29 * h)
     cejas_x1, cejas_x2 = int(x + 0.15 * w), int(x + 0.85 * w)
 
-    # Ojos reubicados estrictamente en el globo ocular (evita vello de ceja)
-    ojo_y1, ojo_y2 = int(y + 0.35 * h), int(y + 0.48 * h)
-    oi_x1, oi_x2 = int(x + 0.17 * w), int(x + 0.45 * w)  # Izquierda en cámara
-    od_x1, od_x2 = int(x + 0.55 * w), int(x + 0.83 * w)  # Derecha en cámara
+    # Franja vertical optimizada de ojos centrada en el globo ocular (0.32h - 0.45h)
+    ojo_rel_y1, ojo_rel_y2 = int(0.32 * h), int(0.45 * h)
+    oi_rel_x1, oi_rel_x2 = int(0.17 * w), int(0.45 * w)
+    od_rel_x1, od_rel_x2 = int(0.55 * w), int(0.83 * w)
 
     boca_y1, boca_y2 = int(y + 0.65 * h), int(y + 0.90 * h)
     boca_x1, boca_x2 = int(x + 0.22 * w), int(x + 0.78 * w)
 
-    img_cejas, rect_cejas = recortar(cejas_x1, cejas_y1, cejas_x2, cejas_y2)
-    img_oi, rect_oi = recortar(oi_x1, ojo_y1, oi_x2, ojo_y2)
-    img_od, rect_od = recortar(od_x1, ojo_y1, od_x2, ojo_y2)
-    img_boca, rect_boca = recortar(boca_x1, boca_y1, boca_x2, boca_y2)
+    img_cejas, rect_cejas = recortar(frame, cejas_x1, cejas_y1, cejas_x2, cejas_y2)
+    img_boca, rect_boca = recortar(frame, boca_x1, boca_y1, boca_x2, boca_y2)
+
+    # Nivelacion opcional del rostro para la extraccion de ojos
+    x1_c, y1_c = max(0, x), max(0, y)
+    x2_c, y2_c = min(ancho_f, x + w), min(alto_f, y + h)
+    cara_recorte = frame[y1_c:y2_c, x1_c:x2_c]
+
+    if abs(angulo) > 0.5 and cara_recorte.shape[0] == h and cara_recorte.shape[1] == w:
+        mat_rot = cv2.getRotationMatrix2D((w / 2.0, h / 2.0), angulo, 1.0)
+        cara_nivelada = cv2.warpAffine(cara_recorte, mat_rot, (w, h), borderMode=cv2.BORDER_REPLICATE)
+        img_oi, _ = recortar(cara_nivelada, oi_rel_x1, ojo_rel_y1, oi_rel_x2, ojo_rel_y2)
+        img_od, _ = recortar(cara_nivelada, od_rel_x1, ojo_rel_y1, od_rel_x2, ojo_rel_y2)
+    else:
+        img_oi, _ = recortar(frame, x + oi_rel_x1, y + ojo_rel_y1, x + oi_rel_x2, y + ojo_rel_y2)
+        img_od, _ = recortar(frame, x + od_rel_x1, y + ojo_rel_y1, x + od_rel_x2, y + ojo_rel_y2)
+
+    rect_oi = (x + oi_rel_x1, y + ojo_rel_y1, oi_rel_x2 - oi_rel_x1, ojo_rel_y2 - ojo_rel_y1)
+    rect_od = (x + od_rel_x1, y + ojo_rel_y1, od_rel_x2 - od_rel_x1, ojo_rel_y2 - ojo_rel_y1)
 
     return {
         "cejas": {"img": img_cejas, "rect": rect_cejas},
@@ -95,41 +117,21 @@ def dibujar_rois(frame_mostrar, rois, regiones_activas=None, estados_texto=None,
     grosor_cara = 3 if gesto_confirmando else 2
     cv2.rectangle(frame_mostrar, (fx, fy), (fx + fw, fy + fh), color_cara, grosor_cara)
 
-    # 1. Cejas
-    cx, cy, cw, ch = rois["cejas"]["rect"]
-    if cw > 0 and ch > 0:
-        activa_c = bool(regiones_activas.get("cejas", False))
-        color_c = COLOR_ACTIVO if activa_c else COLOR_INACTIVO
-        cv2.rectangle(frame_mostrar, (cx, cy), (cx + cw, cy + ch), color_c, 2 if activa_c else 1)
-        texto_cejas = f"Cejas: {estados_texto.get('cejas', 'REPOSO')}"
-        cv2.putText(frame_mostrar, texto_cejas, (cx, cy - 6), FUENTE, 0.4, color_c, 1)
+    elementos = [
+        ("cejas", f"Cejas: {estados_texto.get('cejas', 'REPOSO')}", False),
+        ("ojo_izq", f"Ojo Izq: {estados_texto.get('ojo_izq', 'ABIERTO')}", False),
+        ("ojo_der", f"Ojo Der: {estados_texto.get('ojo_der', 'ABIERTO')}", False),
+        ("boca", f"Boca: {estados_texto.get('boca', 'SERIA')}", True)
+    ]
 
-    # 2. Ojo izquierdo
-    oix, oiy, oiw, oih = rois["ojo_izq"]["rect"]
-    if oiw > 0 and oih > 0:
-        activa_oi = bool(regiones_activas.get("ojo_izq", False))
-        color_oi = COLOR_ACTIVO if activa_oi else COLOR_INACTIVO
-        cv2.rectangle(frame_mostrar, (oix, oiy), (oix + oiw, oiy + oih), color_oi, 2 if activa_oi else 1)
-        texto_oi = f"Ojo Izq: {estados_texto.get('ojo_izq', 'ABIERTO')}"
-        cv2.putText(frame_mostrar, texto_oi, (oix, oiy - 6), FUENTE, 0.4, color_oi, 1)
-
-    # 3. Ojo derecho
-    odx, ody, odw, odh = rois["ojo_der"]["rect"]
-    if odw > 0 and odh > 0:
-        activa_od = bool(regiones_activas.get("ojo_der", False))
-        color_od = COLOR_ACTIVO if activa_od else COLOR_INACTIVO
-        cv2.rectangle(frame_mostrar, (odx, ody), (odx + odw, ody + odh), color_od, 2 if activa_od else 1)
-        texto_od = f"Ojo Der: {estados_texto.get('ojo_der', 'ABIERTO')}"
-        cv2.putText(frame_mostrar, texto_od, (odx, ody - 6), FUENTE, 0.4, color_od, 1)
-
-    # 4. Boca
-    bx, by, bw, bh = rois["boca"]["rect"]
-    if bw > 0 and bh > 0:
-        activa_b = bool(regiones_activas.get("boca", False))
-        color_b = COLOR_ACTIVO if activa_b else COLOR_INACTIVO
-        cv2.rectangle(frame_mostrar, (bx, by), (bx + bw, by + bh), color_b, 2 if activa_b else 1)
-        texto_boca = f"Boca: {estados_texto.get('boca', 'SERIA')}"
-        cv2.putText(frame_mostrar, texto_boca, (bx, by + bh + 14), FUENTE, 0.4, color_b, 1)
+    for clave, etiqueta, texto_abajo in elementos:
+        rx, ry, rw, rh = rois[clave]["rect"]
+        if rw > 0 and rh > 0:
+            activa = bool(regiones_activas.get(clave, False))
+            color = COLOR_ACTIVO if activa else COLOR_INACTIVO
+            cv2.rectangle(frame_mostrar, (rx, ry), (rx + rw, ry + rh), color, 2 if activa else 1)
+            pos_y = (ry + rh + 14) if texto_abajo else (ry - 6)
+            cv2.putText(frame_mostrar, etiqueta, (rx, pos_y), FUENTE, 0.4, color, 1)
 
 def dibujar_hud(frame_mostrar, paso_actual, total_pasos, nombre_gesto, tiempo_restante, frames_ok, total_frames_ok, calibrando=False):
     """Renderiza el panel superior HUD con las instrucciones del reto y progreso."""
@@ -184,29 +186,25 @@ class EvaluadorGestos:
         self.hist_brillo_piel = []
         self.hist_dientes_neutro = []
 
-        # Historiales independientes por cada ojo
-        self.hist_std_oi = []
-        self.hist_std_od = []
-        self.hist_rango_oi = []
-        self.hist_rango_od = []
-        self.hist_alt_oi = []
-        self.hist_alt_od = []
+        # Historiales de aspecto y alineacion neutra
+        self.hist_aspect_oi = []
+        self.hist_aspect_od = []
+        self.angulos_calibracion = []
+        self.angulo_calibrado = 0.0
+        self.neutro_aspect_oi = 0.35
+        self.neutro_aspect_od = 0.35
+
+        # Ventanas deslizantes para confirmacion temporal de gestos de ojos
+        self.ventana_ojo_izq = collections.deque(maxlen=VENTANA_TEMPORAL_GESTO)
+        self.ventana_ojo_der = collections.deque(maxlen=VENTANA_TEMPORAL_GESTO)
 
         self.neutro_dist_cejas = 25.0
         self.neutro_brillo_piel = 110.0
         self.neutro_dientes_pct = 0.0
 
-        # Lineas base neutras por cada ojo
-        self.neutro_std_oi = 28.0
-        self.neutro_std_od = 28.0
-        self.neutro_rango_oi = 75.0
-        self.neutro_rango_od = 75.0
-        self.neutro_alt_oi = 12.0
-        self.neutro_alt_od = 12.0
-
         self.ultimo_estado_boca = "SERIA"
 
-    def calibrar(self, rois):
+    def calibrar(self, rois, cara_gris=None):
         """Calcula los promedios neutros de cejas, piel, ojos y boca durante los primeros fotogramas."""
         dist_c = self._medir_distancia_cejas(rois)
 
@@ -217,19 +215,23 @@ class EvaluadorGestos:
             _, pct_d = self._detectar_dientes_crudo(img_boca, brillo_ref=110.0)
             self.hist_dientes_neutro.append(pct_d)
 
-        # Muestreo adaptativo autonomo por cada ojo (independiente de la boca)
+        # Muestreo adaptativo de la relacion de aspecto neutra por cada ojo
         img_oi = rois["ojo_izq"]["img"]
         img_od = rois["ojo_der"]["img"]
         if img_oi is not None and img_oi.size > 0:
-            m_oi = self._analizar_ojo_local(img_oi)
-            self.hist_std_oi.append(m_oi["std"])
-            self.hist_rango_oi.append(m_oi["rango"])
-            self.hist_alt_oi.append(m_oi["alt_iris"])
+            asp_oi = self._analizar_ojo_aspecto(img_oi)
+            if asp_oi > 0:
+                self.hist_aspect_oi.append(asp_oi)
         if img_od is not None and img_od.size > 0:
-            m_od = self._analizar_ojo_local(img_od)
-            self.hist_std_od.append(m_od["std"])
-            self.hist_rango_od.append(m_od["rango"])
-            self.hist_alt_od.append(m_od["alt_iris"])
+            asp_od = self._analizar_ojo_aspecto(img_od)
+            if asp_od > 0:
+                self.hist_aspect_od.append(asp_od)
+
+        # Deteccion de angulo neutro si la clasificacion de ojos esta activa
+        if ALINEAR_OJOS and cara_gris is not None:
+            ang = calcular_angulo_ojos(cara_gris, self.clasificador_ojos)
+            if ang is not None:
+                self.angulos_calibracion.append(ang)
 
         if dist_c is not None:
             self.hist_cejas.append(dist_c)
@@ -240,14 +242,13 @@ class EvaluadorGestos:
             self.neutro_brillo_piel = float(np.mean(self.hist_brillo_piel)) if self.hist_brillo_piel else 110.0
             self.neutro_dientes_pct = float(np.mean(self.hist_dientes_neutro)) if self.hist_dientes_neutro else 0.0
 
-            if self.hist_std_oi:
-                self.neutro_std_oi = max(14.0, float(np.mean(self.hist_std_oi)))
-                self.neutro_rango_oi = max(35.0, float(np.mean(self.hist_rango_oi)))
-                self.neutro_alt_oi = max(8.0, float(np.mean(self.hist_alt_oi)))
-            if self.hist_std_od:
-                self.neutro_std_od = max(14.0, float(np.mean(self.hist_std_od)))
-                self.neutro_rango_od = max(35.0, float(np.mean(self.hist_rango_od)))
-                self.neutro_alt_od = max(8.0, float(np.mean(self.hist_alt_od)))
+            self.neutro_aspect_oi = max(0.15, float(np.median(self.hist_aspect_oi))) if self.hist_aspect_oi else 0.35
+            self.neutro_aspect_od = max(0.15, float(np.median(self.hist_aspect_od))) if self.hist_aspect_od else 0.35
+
+            if self.angulos_calibracion:
+                self.angulo_calibrado = float(np.median(self.angulos_calibracion))
+            else:
+                self.angulo_calibrado = 0.0
 
             self.calibrado = True
             self.tiempo_inicio_gesto = time.time()
@@ -271,102 +272,63 @@ class EvaluadorGestos:
         alto_cejas = img_cejas.shape[0]
         return float(alto_cejas - y_centroide)
 
-    def _analizar_ojo_local(self, img_ojo):
+    def _analizar_ojo_aspecto(self, img_ojo):
         """
-        Analiza las caracteristicas fotometricas y geometricas del ojo de manera totalmente
-        autonoma (sin depender de la iluminacion de la barbilla o boca).
+        Calcula la relacion de aspecto vertical/horizontal (bh / bw) del contorno oscuro
+        principal en la region central del ojo, aplicando umbralizacion dinamica local.
         """
         if img_ojo is None or img_ojo.size == 0:
-            return {"rango": 0.0, "std": 0.0, "alt_iris": 0, "aspect_iris": 0.0}
+            return 0.0
 
         gris = cv2.cvtColor(img_ojo, cv2.COLOR_BGR2GRAY)
         h, w = gris.shape
-        y1, y2 = int(h * 0.15), int(h * 0.85)
-        x1, x2 = int(w * 0.10), int(w * 0.90)
-        zona = gris[y1:y2, x1:x2]
+        zona = gris[int(h * 0.15):int(h * 0.85), int(w * 0.10):int(w * 0.90)]
         if zona.size == 0:
-            return {"rango": 0.0, "std": 0.0, "alt_iris": 0, "aspect_iris": 0.0}
+            return 0.0
 
         p10 = float(np.percentile(zona, 10))
         p50 = float(np.percentile(zona, 50))
-        p90 = float(np.percentile(zona, 90))
-        std_val = float(np.std(zona))
-        rango_dinamico = float(p90 - p10)
+        umbral = (p10 + p50) / 2.0
 
-        # Umbral adaptativo local al ojo: separa iris de esclerotica y parpado
-        umbral_iris = (p10 + p50) / 2.0
-        masc_iris = (zona < umbral_iris).astype(np.uint8) * 255
-
+        mascara = (zona < umbral).astype(np.uint8) * 255
         kernel = np.ones((2, 2), np.uint8)
-        masc_iris = cv2.morphologyEx(masc_iris, cv2.MORPH_OPEN, kernel)
+        mascara = cv2.morphologyEx(mascara, cv2.MORPH_OPEN, kernel)
 
-        contornos, _ = cv2.findContours(masc_iris, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        alt_iris = 0
-        aspect_iris = 0.0
-
+        contornos, _ = cv2.findContours(mascara, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if len(contornos) > 0:
             c_mayor = max(contornos, key=cv2.contourArea)
             _, _, bw, bh = cv2.boundingRect(c_mayor)
-            alt_iris = bh
-            aspect_iris = bh / max(1.0, float(bw))
+            return float(bh / max(1.0, float(bw)))
 
-        return {
-            "rango": rango_dinamico,
-            "std": std_val,
-            "alt_iris": int(alt_iris),
-            "aspect_iris": float(aspect_iris)
-        }
+        return 0.0
 
-    def _evaluar_ojo_individual(self, img_ojo, neutro_std, neutro_rango, neutro_alt):
+    def _evaluar_ojo_individual(self, img_ojo, neutro_aspect):
         """
-        Evalua el estado de apertura de un ojo comparando su desviacion estandar,
-        rango dinamico y altura de iris contra los valores neutros de calibracion.
-        Retorna una tupla (esta_cerrado, score_cierre).
+        Evalua si el ojo esta cerrado comparando su relacion de aspecto actual
+        con su linea base neutra mediante la Regla K adaptativa.
+        Retorna una tupla (esta_cerrado, aspect_actual).
         """
         if img_ojo is None or img_ojo.size == 0:
-            return True, 1.0
+            return True, 0.0
 
-        m = self._analizar_ojo_local(img_ojo)
-        alt_iris = m["alt_iris"]
-        aspect_iris = m["aspect_iris"]
-        std_val = m["std"]
-        rango = m["rango"]
+        aspect_actual = self._analizar_ojo_aspecto(img_ojo)
+        umbral_cierre = FACTOR_K_CIERRE_OJO * neutro_aspect
+        esta_cerrado = bool(aspect_actual < umbral_cierre)
 
-        # Deteccion de pestanas horizontales en cierre forzado
-        es_linea_pestanas = (alt_iris <= 4) or (aspect_iris < ASPECTO_MINIMO_IRIS_ABIERTO)
-
-        # Caida de contraste caracteristica del parpado cerrado
-        umbral_std_min = max(10.0, neutro_std * FACTOR_APERTURA_STD)
-        umbral_rango_min = max(25.0, neutro_rango * FACTOR_APERTURA_RANGO)
-        es_parpado_liso = (std_val < umbral_std_min) or (rango < umbral_rango_min)
-
-        # Altura vertical minima del iris visible
-        umbral_alt_min = max(ALTURA_MINIMA_IRIS_ABIERTO, int(neutro_alt * 0.40))
-
-        ojo_abierto = (alt_iris >= umbral_alt_min) and (not es_linea_pestanas) and (not es_parpado_liso)
-
-        if (std_val >= neutro_std * 0.85) and (alt_iris >= 5) and (aspect_iris >= 0.25):
-            ojo_abierto = True
-
-        score_cierre = 0.0 if ojo_abierto else 1.0
-        return bool(not ojo_abierto), float(score_cierre)
+        return esta_cerrado, aspect_actual
 
     def _evaluar_ojos(self, rois):
         """Determina de forma diferencial el estado de ambos ojos usando sus lineas base independientes."""
-        izq_cerrado, score_oi = self._evaluar_ojo_individual(
+        izq_cerrado, aspect_oi = self._evaluar_ojo_individual(
             rois["ojo_izq"]["img"],
-            self.neutro_std_oi,
-            self.neutro_rango_oi,
-            self.neutro_alt_oi
+            self.neutro_aspect_oi
         )
-        der_cerrado, score_od = self._evaluar_ojo_individual(
+        der_cerrado, aspect_od = self._evaluar_ojo_individual(
             rois["ojo_der"]["img"],
-            self.neutro_std_od,
-            self.neutro_rango_od,
-            self.neutro_alt_od
+            self.neutro_aspect_od
         )
 
-        return izq_cerrado, der_cerrado, float(score_oi), float(score_od)
+        return izq_cerrado, der_cerrado, aspect_oi, aspect_od
 
     def _detectar_dientes_crudo(self, img_boca, brillo_ref):
         """
@@ -441,11 +403,15 @@ class EvaluadorGestos:
                 regiones["cejas"] = True
 
         # 2. Evaluacion de ojos
-        izq_c, der_c, score_oi, score_od = self._evaluar_ojos(rois)
+        izq_c, der_c, _, _ = self._evaluar_ojos(rois)
         if izq_c:
             regiones["ojo_izq"] = True
         if der_c:
             regiones["ojo_der"] = True
+
+        # Actualizar historiales deslizantes para confirmacion temporal
+        self.ventana_ojo_izq.append(1 if izq_c else 0)
+        self.ventana_ojo_der.append(1 if der_c else 0)
 
         # 3. Evaluacion de sonrisa (dientes visibles)
         es_sonrisa, pct_dientes = self._evaluar_sonrisa(rois)
@@ -469,13 +435,23 @@ class EvaluadorGestos:
             cumplido = bool(es_sonrisa)
 
         elif gesto == "cerrar_ambos_ojos":
-            cumplido = bool(izq_c and der_c)
+            val_oi = (len(self.ventana_ojo_izq) >= VENTANA_TEMPORAL_GESTO and
+                      sum(self.ventana_ojo_izq) >= MIN_FRAMES_CONFIRMACION_GESTO)
+            val_od = (len(self.ventana_ojo_der) >= VENTANA_TEMPORAL_GESTO and
+                      sum(self.ventana_ojo_der) >= MIN_FRAMES_CONFIRMACION_GESTO)
+            cumplido = bool(val_oi and val_od)
 
         elif gesto == "cerrar_ojo_izq":
-            cumplido = bool(izq_c and not der_c)
+            val_oi = (len(self.ventana_ojo_izq) >= VENTANA_TEMPORAL_GESTO and
+                      sum(self.ventana_ojo_izq) >= MIN_FRAMES_CONFIRMACION_GESTO)
+            val_od_abierto = (sum(self.ventana_ojo_der) <= (VENTANA_TEMPORAL_GESTO - MIN_FRAMES_CONFIRMACION_GESTO))
+            cumplido = bool(val_oi and val_od_abierto)
 
         elif gesto == "cerrar_ojo_der":
-            cumplido = bool(der_c and not izq_c)
+            val_od = (len(self.ventana_ojo_der) >= VENTANA_TEMPORAL_GESTO and
+                      sum(self.ventana_ojo_der) >= MIN_FRAMES_CONFIRMACION_GESTO)
+            val_oi_abierto = (sum(self.ventana_ojo_izq) <= (VENTANA_TEMPORAL_GESTO - MIN_FRAMES_CONFIRMACION_GESTO))
+            cumplido = bool(val_od and val_oi_abierto)
 
         return bool(cumplido), regiones
 
@@ -485,12 +461,16 @@ class EvaluadorGestos:
         Retorna (estado, frame_anotado).
         """
         x, y, w, h = cara_rect
-        rois = extraer_rois(frame, x, y, w, h)
+        rois = extraer_rois(frame, x, y, w, h, self.angulo_calibrado)
         frame_anotado = frame.copy()
 
         # 1. Fase de calibracion inicial
         if not self.calibrado:
-            self.calibrar(rois)
+            x1_c, y1_c = max(0, x), max(0, y)
+            x2_c, y2_c = min(frame.shape[1], x + w), min(frame.shape[0], y + h)
+            cara_recorte = frame[y1_c:y2_c, x1_c:x2_c]
+            cara_gris = cv2.cvtColor(cara_recorte, cv2.COLOR_BGR2GRAY) if cara_recorte.size > 0 else None
+            self.calibrar(rois, cara_gris=cara_gris)
             estados_calib = {
                 "cejas": "CALIBRANDO",
                 "ojo_izq": "CALIBRANDO",
@@ -524,16 +504,32 @@ class EvaluadorGestos:
         gesto_objetivo = self.lista_retos[self.paso_actual]
         gesto_detectado, regiones_activas = self.evaluar_gesto_activo(gesto_objetivo, rois)
 
-        if gesto_detectado:
-            self.frames_confirmados += 1
+        es_gesto_ojos = gesto_objetivo in ("cerrar_ambos_ojos", "cerrar_ojo_izq", "cerrar_ojo_der")
+        total_necesarios = MIN_FRAMES_CONFIRMACION_GESTO if es_gesto_ojos else FRAMES_CONFIRMACION_GESTO
+
+        if es_gesto_ojos:
+            if gesto_objetivo == "cerrar_ambos_ojos":
+                frames_progreso = min(sum(self.ventana_ojo_izq), sum(self.ventana_ojo_der))
+            elif gesto_objetivo == "cerrar_ojo_izq":
+                frames_progreso = sum(self.ventana_ojo_izq) if sum(self.ventana_ojo_der) <= 2 else 0
+            else:
+                frames_progreso = sum(self.ventana_ojo_der) if sum(self.ventana_ojo_izq) <= 2 else 0
+            self.frames_confirmados = frames_progreso
         else:
-            self.frames_confirmados = max(0, self.frames_confirmados - 1)
+            if gesto_detectado:
+                self.frames_confirmados += 1
+            else:
+                self.frames_confirmados = max(0, self.frames_confirmados - 1)
 
         # 4. Comprobar superacion del paso
-        if self.frames_confirmados >= FRAMES_CONFIRMACION_GESTO:
+        paso_superado = gesto_detectado if es_gesto_ojos else (self.frames_confirmados >= FRAMES_CONFIRMACION_GESTO)
+        if paso_superado:
+            reproducir_audio(AUDIO_SUCCESS)
             self.paso_actual += 1
             self.frames_confirmados = 0
             self.tiempo_inicio_gesto = time.time()
+            self.ventana_ojo_izq.clear()
+            self.ventana_ojo_der.clear()
 
             if self.paso_actual >= len(self.lista_retos):
                 return "EXITO", frame_anotado
@@ -554,7 +550,7 @@ class EvaluadorGestos:
             nombre_gesto=self.lista_retos[self.paso_actual],
             tiempo_restante=tiempo_restante,
             frames_ok=self.frames_confirmados,
-            total_frames_ok=FRAMES_CONFIRMACION_GESTO,
+            total_frames_ok=total_necesarios,
             calibrando=False
         )
 

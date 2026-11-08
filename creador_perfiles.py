@@ -9,7 +9,7 @@ from config import (
     FUENTE,
     ESCALA
 )
-from vision import obtener_clasificador, detectar_caras
+from vision import obtener_clasificador, detectar_caras, normalizar_cara
 from usuarios import (
     inicializar_entorno,
     verificar_admin,
@@ -18,7 +18,7 @@ from usuarios import (
 )
 
 def capturar_poses_usuario(nombre_usuario):
-    """Guía la captura de las 4 poses faciales y las guarda en disco."""
+    """Guía la captura de 2 poses faciales frontales normalizadas y las guarda en disco."""
     clasificador = obtener_clasificador()
     camara = cv2.VideoCapture(0)
 
@@ -28,9 +28,7 @@ def capturar_poses_usuario(nombre_usuario):
 
     poses = [
         ("frente_normal", "Posa de FRENTE (Normal) - Pulsa ESPACIO"),
-        ("frente_sonriendo", "Posa de FRENTE (Sonriendo) - Pulsa ESPACIO"),
-        ("perfil_derecho", "Gira levemente a tu DERECHA - Pulsa ESPACIO"),
-        ("perfil_izquierdo", "Gira levemente a tu IZQUIERDA - Pulsa ESPACIO")
+        ("frente_sonriendo", "Posa de FRENTE (Sonriendo) - Pulsa ESPACIO")
     ]
 
     print("\n--- INICIO DE CAPTURA FACIAL ---")
@@ -57,12 +55,11 @@ def capturar_poses_usuario(nombre_usuario):
 
             tecla = cv2.waitKey(1)
             if tecla == ord(' '):
-                if len(caras) > 0:
-                    x, y, ancho, alto = caras[0]
-                    recorte = frame_byn[y:y+alto, x:x+ancho]
-                else:
-                    recorte = frame_byn
+                if len(caras) == 0:
+                    print("[AVISO] No se detecta ningún rostro en el encuadre. Sitúate frente a la cámara.")
+                    continue
 
+                recorte = normalizar_cara(frame_byn, caja=caras[0])
                 nombre_archivo = f"{CARPETA_CONFIANZA}/{nombre_usuario}_{clave_pose}.jpg"
                 cv2.imwrite(nombre_archivo, recorte)
                 print(f"[OK] Fotograma capturado: {clave_pose}")

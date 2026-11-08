@@ -10,18 +10,21 @@ from config import (
     RUTA_CASCADE,
     UMBRAL_COINCIDENCIA,
     TIEMPO_AUSENCIA_GUARDIA,
+    TIEMPO_MAXIMO_GESTO,
     COLOR_RECUADRO,
     COLOR_TEXTO,
     FUENTE,
-    GROSOR
+    GROSOR,
+    AUDIO_ERROR
 )
 from vision import (
     cargar_caras_confianza,
     identificar_rostro,
     obtener_clasificador,
-    detectar_caras
+    detectar_caras,
+    normalizar_cara
 )
-from sistema import suspender_equipo, guardar_evidencia_intruso
+from sistema import suspender_equipo, guardar_evidencia_intruso, reproducir_audio
 from usuarios import (
     cargar_usuarios,
     inicializar_entorno,
@@ -118,9 +121,7 @@ def verificar_password_texto(usuario, datos_sistema=None):
     print(f"\n[AVISO] Usuario de confianza detectado: {usuario.upper()}")
     password_ingresada = input(f"Introduce tu contraseña, {usuario}: ").strip()
 
-    info_usuario = obtener_usuario(usuario)
-    if info_usuario is None and datos_sistema:
-        info_usuario = datos_sistema.get("usuarios", {}).get(usuario, {})
+    info_usuario = datos_sistema.get("usuarios", {}).get(usuario) if datos_sistema else obtener_usuario(usuario)
 
     if info_usuario and password_ingresada == info_usuario.get("password"):
         print("[OK] Contraseña de texto correcta. Iniciando reto de contraseña facial...")
@@ -131,9 +132,7 @@ def verificar_password_texto(usuario, datos_sistema=None):
 
 def mostrar_permisos_usuario(usuario, datos_sistema=None):
     """Muestra por terminal el mensaje de bienvenida y el rol asignado."""
-    info_usuario = obtener_usuario(usuario)
-    if info_usuario is None and datos_sistema:
-        info_usuario = datos_sistema.get("usuarios", {}).get(usuario, {})
+    info_usuario = datos_sistema.get("usuarios", {}).get(usuario) if datos_sistema else obtener_usuario(usuario)
 
     rol = info_usuario.get("rol", "Invitado") if info_usuario else "Invitado"
     print(f"\n[ACCESO CONCEDIDO] Bienvenido/a {usuario}.")
@@ -169,9 +168,24 @@ def validar_contrasena_facial(camara, clasificador):
                 cv2.waitKey(600)
                 return True
             elif estado_reto == "TIMEOUT":
+                reproducir_audio(AUDIO_ERROR)
+                cv2.putText(frame_hud, "TIEMPO AGOTADO - BLOQUEANDO", (frame.shape[1] // 6, frame.shape[0] // 2),
+                            FUENTE, 0.8, (0, 0, 255), 2)
+                cv2.imshow("Autenticador Facial", frame_hud)
+                cv2.waitKey(800)
                 return False
         else:
             frame_hud = frame.copy()
+            if evaluador.calibrado and evaluador.tiempo_inicio_gesto is not None:
+                tiempo_restante = max(0.0, TIEMPO_MAXIMO_GESTO - (time.time() - evaluador.tiempo_inicio_gesto))
+                if tiempo_restante <= 0.0:
+                    reproducir_audio(AUDIO_ERROR)
+                    cv2.putText(frame_hud, "TIEMPO AGOTADO - BLOQUEANDO", (frame.shape[1] // 6, frame.shape[0] // 2),
+                                FUENTE, 0.8, (0, 0, 255), 2)
+                    cv2.imshow("Autenticador Facial", frame_hud)
+                    cv2.waitKey(800)
+                    return False
+
             cv2.putText(frame_hud, "SITUATE FRENTE A LA CAMARA", (20, 60),
                         FUENTE, 0.7, (0, 0, 255), 2)
 
@@ -228,10 +242,17 @@ def ejecutar_guardia():
                 if len(caras) > 0:
                     x, y, ancho, alto = caras[0]
                     cv2.rectangle(frame_mostrar, (x, y), (x + ancho, y + alto), COLOR_RECUADRO, GROSOR)
-                    roi_cara = frame_byn[y:y+alto, x:x+ancho]
+                    roi_cara = normalizar_cara(frame_byn, caja=caras[0])
                     usuario, score = identificar_rostro(roi_cara, lista_nombres, lista_caras)
 
-                    datos_sistema = cargar_usuarios()
+                    if usuario is None:
+                        # Recarga en caliente ante nuevo usuario registrado durante la ejecucion
+                        lista_nombres, lista_caras = cargar_caras_confianza()
+                        datos_sistema = cargar_usuarios()
+                        usuario, score = identificar_rostro(roi_cara, lista_nombres, lista_caras)
+                    elif usuario not in datos_sistema.get("usuarios", {}):
+                        datos_sistema = cargar_usuarios()
+
                     if usuario is not None and usuario in datos_sistema.get("usuarios", {}):
                         cv2.putText(frame_mostrar, f"Usuario: {usuario.upper()}", (x, y - 10), FUENTE, 0.6, COLOR_TEXTO, 2)
                         cv2.imshow("Autenticador Facial", frame_mostrar)
@@ -255,6 +276,7 @@ def ejecutar_guardia():
                             else:
                                 print("\n[ALERTA INTRUSO] Prueba de gestos no superada o tiempo agotado.")
                                 guardar_evidencia_intruso(camara, frame)
+                                time.sleep(1.0)
                                 suspender_equipo()
                                 time.sleep(5)
                     else:
@@ -295,7 +317,7 @@ def ejecutar_guardia():
                     # Monitoreo continuo de similitud facial por Template Matching cada 15 frames
                     contador_frames_sesion += 1
                     if contador_frames_sesion % 15 == 0:
-                        roi_cara = frame_byn[y:y+alto, x:x+ancho]
+                        roi_cara = normalizar_cara(frame_byn, caja=caras[0])
                         _, score_actual = identificar_rostro(roi_cara, lista_nombres, lista_caras)
                         if score_actual is not None:
                             sim_act = max(0.0, min(100.0, (1.0 - score_actual) * 100.0))
