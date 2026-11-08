@@ -12,6 +12,9 @@ from config import (
     TIEMPO_AUSENCIA_GUARDIA,
     TIEMPO_MAXIMO_GESTO,
     FRAMES_ESTABILIDAD_GUARDIA,
+    TIEMPO_DISPARO_REENGANCHE,
+    FRAMES_CONFIRMACION_RETORNO,
+    UMBRAL_REENGANCHE_SESION,
     COLOR_RECUADRO,
     COLOR_TEXTO,
     FUENTE,
@@ -24,7 +27,9 @@ from vision import (
     obtener_clasificador,
     detectar_caras,
     normalizar_cara,
-    verificar_rostro_estatico
+    verificar_rostro_estatico,
+    verificar_usuario_especifico,
+    obtener_plantillas_usuario
 )
 from sistema import suspender_equipo, guardar_evidencia_intruso, reproducir_audio
 from usuarios import (
@@ -217,8 +222,13 @@ def ejecutar_guardia():
     
     estado_sesion = False
     usuario_autenticado = None
+    plantillas_usuario_activo = []
     tiempo_inicio_sesion = None
     tiempo_inicio_ausencia = None
+    ultimo_tiempo_ausencia = 0.0
+    verificando_retorno = False
+    buffer_scores_retorno = []
+    tiempo_confirmacion_retorno = 0.0
     mostrar_detalles = False
     stats_usuario = {}
     historial_similitud_sesion = []
@@ -302,8 +312,13 @@ def ejecutar_guardia():
                                     stats_usuario = obtener_estadisticas_usuario(usuario)
                                     estado_sesion = True
                                     usuario_autenticado = usuario
+                                    plantillas_usuario_activo = obtener_plantillas_usuario(usuario, lista_nombres, lista_caras)
                                     tiempo_inicio_sesion = time.time()
                                     tiempo_inicio_ausencia = None
+                                    ultimo_tiempo_ausencia = 0.0
+                                    verificando_retorno = False
+                                    buffer_scores_retorno = []
+                                    tiempo_confirmacion_retorno = 0.0
                                     mostrar_detalles = False
                                     historial_similitud_sesion = [similitud_login]
                                     contador_frames_sesion = 0
@@ -341,31 +356,98 @@ def ejecutar_guardia():
                         tiempo_inicio_ausencia = time.time()
 
                     tiempo_ausente = time.time() - tiempo_inicio_ausencia
+                    ultimo_tiempo_ausencia = tiempo_ausente
+
                     if tiempo_ausente >= TIEMPO_AUSENCIA_GUARDIA:
                         print(f"\n[BLOQUEO] Usuario '{usuario_autenticado}' ausente durante {int(tiempo_ausente)} segundos. Reactivando guardia...")
                         registrar_fin_sesion(usuario_autenticado, duracion_actual)
                         estado_sesion = False
                         usuario_autenticado = None
+                        plantillas_usuario_activo = []
                         tiempo_inicio_ausencia = None
                         tiempo_inicio_sesion = None
+                        ultimo_tiempo_ausencia = 0.0
+                        verificando_retorno = False
+                        buffer_scores_retorno = []
+                        tiempo_confirmacion_retorno = 0.0
                         mostrar_detalles = False
                         historial_similitud_sesion = []
                         contador_frames_sesion = 0
                         frames_estables = 0
                         ultima_caja = None
                 else:
+                    x, y, ancho, alto = caras[0]
+
+                    # Si hubo ausencia previa que supero el tiempo minimo de disparo (1.0s)
+                    if tiempo_inicio_ausencia is not None and ultimo_tiempo_ausencia >= TIEMPO_DISPARO_REENGANCHE:
+                        verificando_retorno = True
+                        buffer_scores_retorno = []
+
                     tiempo_inicio_ausencia = None
                     tiempo_ausente = 0.0
-                    x, y, ancho, alto = caras[0]
-                    cv2.rectangle(frame_mostrar, (x, y), (x + ancho, y + alto), (0, 255, 0), GROSOR)
+                    ultimo_tiempo_ausencia = 0.0
 
-                    # Monitoreo continuo de similitud facial por Template Matching cada 15 frames
-                    contador_frames_sesion += 1
-                    if contador_frames_sesion % 15 == 0:
+                    # ---------------------------------------------------------
+                    # CASO A: FASE DE VERIFICACION DE RETORNO (ANTI-USURPACION)
+                    # ---------------------------------------------------------
+                    if verificando_retorno:
                         roi_cara = normalizar_cara(frame_byn, caja=caras[0])
-                        _, score_actual = identificar_rostro(roi_cara, lista_nombres, lista_caras)
-                        if score_actual is not None:
-                            sim_act = max(0.0, min(100.0, (1.0 - score_actual) * 100.0))
+                        coincide_frame, score_frame, _ = verificar_usuario_especifico(
+                            roi_cara, plantillas_usuario_activo, UMBRAL_REENGANCHE_SESION
+                        )
+                        buffer_scores_retorno.append(score_frame)
+
+                        progreso_ret = min(100, int((len(buffer_scores_retorno) / FRAMES_CONFIRMACION_RETORNO) * 100))
+                        cv2.rectangle(frame_mostrar, (x, y), (x + ancho, y + alto), (0, 255, 255), GROSOR)
+                        cv2.putText(frame_mostrar, f"VERIFICANDO RETORNO: {progreso_ret}%", (x, max(20, y - 10)), FUENTE, 0.50, (0, 255, 255), 2)
+
+                        if len(buffer_scores_retorno) >= FRAMES_CONFIRMACION_RETORNO:
+                            score_medio = float(np.mean(buffer_scores_retorno))
+                            if score_medio < UMBRAL_REENGANCHE_SESION:
+                                verificando_retorno = False
+                                buffer_scores_retorno = []
+                                tiempo_confirmacion_retorno = time.time()
+                            else:
+                                cv2.rectangle(frame_mostrar, (x, y), (x + ancho, y + alto), (0, 0, 255), GROSOR)
+                                cv2.putText(frame_mostrar, "ALERTA: USURPACION DE SESION", (20, 80), FUENTE, 0.70, (0, 0, 255), 2)
+                                cv2.imshow("Autenticador Facial", frame_mostrar)
+                                cv2.waitKey(1)
+                                print(f"\n[ALERTA INTRUSO] Intento de usurpación en la sesión de '{usuario_autenticado}'. Score: {score_medio:.4f}")
+                                guardar_evidencia_intruso(camara, frame)
+                                registrar_fin_sesion(usuario_autenticado, duracion_actual)
+                                suspender_equipo()
+                                time.sleep(5)
+                                estado_sesion = False
+                                usuario_autenticado = None
+                                plantillas_usuario_activo = []
+                                tiempo_inicio_ausencia = None
+                                tiempo_inicio_sesion = None
+                                ultimo_tiempo_ausencia = 0.0
+                                verificando_retorno = False
+                                buffer_scores_retorno = []
+                                tiempo_confirmacion_retorno = 0.0
+                                mostrar_detalles = False
+                                historial_similitud_sesion = []
+                                contador_frames_sesion = 0
+                                frames_estables = 0
+                                ultima_caja = None
+
+                    # ---------------------------------------------------------
+                    # CASO B: OPERACION NORMAL DE SESION ACTIVA
+                    # ---------------------------------------------------------
+                    else:
+                        cv2.rectangle(frame_mostrar, (x, y), (x + ancho, y + alto), (0, 255, 0), GROSOR)
+
+                        if (time.time() - tiempo_confirmacion_retorno) < 1.8:
+                            cv2.putText(frame_mostrar, f"RETORNO CONFIRMADO: {usuario_autenticado.upper()}", (x, max(20, y - 10)), FUENTE, 0.50, (0, 255, 0), 2)
+
+                        # Monitoreo continuo de similitud facial cada 15 frames
+                        contador_frames_sesion += 1
+                        if contador_frames_sesion % 15 == 0:
+                            roi_cara = normalizar_cara(frame_byn, caja=caras[0])
+                            _, score_actual, sim_act = verificar_usuario_especifico(
+                                roi_cara, plantillas_usuario_activo, UMBRAL_REENGANCHE_SESION
+                            )
                             historial_similitud_sesion.append(sim_act)
 
                 if estado_sesion:

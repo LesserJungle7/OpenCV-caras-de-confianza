@@ -13,7 +13,8 @@ from config import (
     ALINEAR_OJOS,
     ANGULO_MAXIMO_ALINEACION,
     UMBRAL_MOVIMIENTO_ESTABLE,
-    VARIANZA_MINIMA_TEXTURA
+    VARIANZA_MINIMA_TEXTURA,
+    UMBRAL_REENGANCHE_SESION
 )
 
 # Instancias globales a nivel de modulo
@@ -337,3 +338,43 @@ def identificar_rostro(roi_cara_byn, lista_nombres, lista_caras, umbral=UMBRAL_C
     if mejor_score < umbral:
         return nombre_detectado, mejor_score
     return None, mejor_score
+
+def obtener_plantillas_usuario(nombre_usuario, lista_nombres, lista_caras):
+    """Filtra y devuelve la lista de plantillas normalizadas asociadas a un usuario."""
+    return [lista_caras[i] for i in range(len(lista_nombres)) if lista_nombres[i] == nombre_usuario]
+
+def verificar_usuario_especifico(roi_cara_byn, plantillas_usuario, umbral=UMBRAL_REENGANCHE_SESION):
+    """
+    Compara un rostro normalizado contra las plantillas exclusivas del usuario activo.
+    Retorna una tupla (coincide, mejor_score, mejor_similitud).
+    """
+    if not plantillas_usuario or roi_cara_byn is None or roi_cara_byn.size == 0:
+        return False, 1.0, 0.0
+
+    if (roi_cara_byn.shape[1], roi_cara_byn.shape[0]) != TAM_CARA:
+        roi_cara_byn = cv2.resize(roi_cara_byn, TAM_CARA, interpolation=cv2.INTER_AREA)
+
+    roi_suavizada = cv2.blur(roi_cara_byn, (3, 3))
+    alto_roi, ancho_roi = roi_suavizada.shape[:2]
+    mejor_score = 1.0
+
+    for patron in plantillas_usuario:
+        if (patron.shape[1], patron.shape[0]) != (ancho_roi, alto_roi):
+            if ancho_roi < patron.shape[1] or alto_roi < patron.shape[0]:
+                tipo_interpolacion = cv2.INTER_AREA
+            else:
+                tipo_interpolacion = cv2.INTER_LINEAR
+            patron_redimensionado = cv2.resize(patron, (ancho_roi, alto_roi), interpolation=tipo_interpolacion)
+        else:
+            patron_redimensionado = patron
+
+        patron_suavizado = cv2.blur(patron_redimensionado, (3, 3))
+        res = cv2.matchTemplate(roi_suavizada, patron_suavizado, cv2.TM_SQDIFF_NORMED)
+        min_val, _, _, _ = cv2.minMaxLoc(res)
+
+        if min_val < mejor_score:
+            mejor_score = float(min_val)
+
+    similitud = max(0.0, min(100.0, (1.0 - mejor_score) * 100.0))
+    coincide = mejor_score < umbral
+    return coincide, mejor_score, similitud

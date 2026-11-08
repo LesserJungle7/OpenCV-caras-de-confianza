@@ -30,6 +30,11 @@ FRAMES_ESTABILIDAD_GUARDIA = 12     # Fotogramas consecutivos con rostro quieto 
 UMBRAL_MOVIMIENTO_ESTABLE = 14      # Desplazamiento maximo en pixeles del centroide entre frames
 VARIANZA_MINIMA_TEXTURA = 65.0      # Varianza minima del Laplaciano para descartar oclusiones lisas
 
+# Parametros de re-validacion de retorno en sesion activa (anti-usurpacion)
+TIEMPO_DISPARO_REENGANCHE = 1.0     # Segundos de ausencia minima para exigir re-verificacion al volver
+FRAMES_CONFIRMACION_RETORNO = 8     # Fotogramas de amortiguacion para promediar similitud de retorno
+UMBRAL_REENGANCHE_SESION = 0.07     # Umbral de distancia SQDIFF para validar al usuario que regresa
+
 # Gestos disponibles para el reto facial (prueba de vida)
 GESTOS_DISPONIBLES = [
     "levantar_cejas",
