@@ -39,11 +39,11 @@ def obtener_clasificador():
         _clasificador_rostros = cv2.CascadeClassifier(RUTA_CASCADE)
     return _clasificador_rostros
 
-def calcular_angulo_ojos(cara_gris, clasificador_ojos=None):
+def detectar_posicion_ojos(cara_gris, clasificador_ojos=None):
     """
-    Calcula el angulo de inclinacion entre ambos ojos en la mitad superior de la cara.
-    Retorna el angulo en grados si se detecta exactamente un ojo en cada hemisferio
-    con separacion horizontal valida, o None si no se cumplen las condiciones.
+    Detecta los centros de ambos ojos en la mitad superior de la cara.
+    Retorna ((cx_izq, cy_izq), (cx_der, cy_der)) si se detecta exactamente un ojo
+    en cada hemisferio con separacion horizontal valida, o None en caso contrario.
     """
     clasificador = clasificador_ojos or _clasificador_ojos
     if clasificador is None or cara_gris is None or cara_gris.size == 0:
@@ -87,6 +87,19 @@ def calcular_angulo_ojos(cara_gris, clasificador_ojos=None):
     if not (0.25 * ancho <= dist_h <= 0.65 * ancho):
         return None
 
+    return (cx_izq, cy_izq), (cx_der, cy_der)
+
+def calcular_angulo_ojos(cara_gris, clasificador_ojos=None):
+    """
+    Calcula el angulo de inclinacion entre ambos ojos en la mitad superior de la cara.
+    Retorna el angulo en grados si se detecta exactamente un ojo en cada hemisferio
+    con separacion horizontal valida, o None si no se cumplen las condiciones.
+    """
+    pos_ojos = detectar_posicion_ojos(cara_gris, clasificador_ojos)
+    if pos_ojos is None:
+        return None
+
+    (cx_izq, cy_izq), (cx_der, cy_der) = pos_ojos
     dx = cx_der - cx_izq
     dy = cy_der - cy_izq
     angulo = float(np.degrees(np.arctan2(dy, dx)))

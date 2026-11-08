@@ -63,10 +63,15 @@ VENTANA_TEMPORAL_GESTO = 8          # Tamano de la ventana deslizante para gesto
 MIN_FRAMES_CONFIRMACION_GESTO = 6   # Fotogramas minimos requeridos dentro de la ventana
 
 # Discriminacion colorimetrica de esmalte dental
-DIF_MAXIMA_ROJO_AZUL_DIENTES = 35  # Diferencia maxima |R - B| para aceptar tono marfil neutro
-DIF_MAXIMA_ROJO_VERDE_DIENTES = 30 # Diferencia maxima |R - G|
-ANCHO_MINIMO_FRANJA_DIENTES = 14   # Anchura minima del contorno de dientes en pixeles
-PORCENTAJE_MINIMO_DIENTES = 0.04   # Porcentaje minimo de area de dientes en centro labial
+TAM_BOCA_CANONICA = (100, 60)       # Resolucion estandarizada (ancho, alto) para invarianza de escala
+DIF_MAXIMA_ROJO_AZUL_DIENTES = 28  # Diferencia maxima |R - B| para aceptar tono marfil neutro
+DIF_MAXIMA_ROJO_VERDE_DIENTES = 24 # Diferencia maxima |R - G|
+ANCHO_MINIMO_FRANJA_DIENTES = 18    # Anchura minima del contorno en espacio canonico de 60 px
+PORCENTAJE_MINIMO_DIENTES = 0.065   # Porcentaje minimo de esmalte en apertura bucal (6.5 %)
+ASPECTO_MINIMO_FRANJA_DIENTES = 1.4 # Relacion de aspecto horizontal/vertical minima (bw/bh)
+BRILLO_SUELO_DIENTES = 165.0        # Cota inferior de luminosidad dental para pieles oscuras
+BRILLO_TECHO_DIENTES = 200.0        # Cota superior para evitar perdida de dentadura en pieles claras
+BRILLO_MARGEN_DIENTES = 14.0        # Margen adaptativo sobre el brillo neutro facial calibrado
 
 # Estilos visuales estandarizados (formato BGR de OpenCV)
 COLOR_TEXTO = (0, 255, 255)
