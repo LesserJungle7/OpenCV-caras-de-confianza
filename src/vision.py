@@ -16,6 +16,12 @@ from config import (
     VARIANZA_MINIMA_TEXTURA,
     UMBRAL_REENGANCHE_SESION
 )
+from depurador import (
+    es_debug_activo,
+    mostrar_debug_normalizacion,
+    mostrar_debug_estabilidad,
+    mostrar_debug_matching
+)
 
 # Instancias globales a nivel de modulo
 _CLAHE = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4, 4))
@@ -170,7 +176,7 @@ def detectar_caras(frame, clasificador=None, scale_factor=1.15, min_neighbors=5,
 
     return caras_filtradas, frame_byn
 
-def verificar_rostro_estatico(caja_actual, caja_previa, frame_gris):
+def verificar_rostro_estatico(caja_actual, caja_previa, frame_gris, frames_estables=0):
     """
     Determina si un rostro detectado se mantiene quieto, frontal y sin oclusiones.
     Evalua relacion de aspecto, desplazamiento entre fotogramas y nitidez/textura minima.
@@ -181,10 +187,11 @@ def verificar_rostro_estatico(caja_actual, caja_previa, frame_gris):
 
     # 1. Proporcion frontal: un rostro humano frontal tiene relacion w/h entre 0.70 y 1.30
     aspect_ratio = float(w) / float(h)
-    if not (0.70 <= aspect_ratio <= 1.30):
-        return False
+    proporcion_ok = (0.70 <= aspect_ratio <= 1.30)
 
     # 2. Desplazamiento respecto al fotograma previo
+    dist_desplazamiento = 0.0
+    variacion_tam_ok = True
     if caja_previa is not None:
         px, py, pw, ph = caja_previa
         cx_actual = x + w / 2.0
@@ -192,15 +199,13 @@ def verificar_rostro_estatico(caja_actual, caja_previa, frame_gris):
         cx_prev = px + pw / 2.0
         cy_prev = py + ph / 2.0
 
-        dist_desplazamiento = np.hypot(cx_actual - cx_prev, cy_actual - cy_prev)
-        if dist_desplazamiento > UMBRAL_MOVIMIENTO_ESTABLE:
-            return False
-
-        # Descarte de variaciones abruptas de tamano (mayor al 20 %)
+        dist_desplazamiento = float(np.hypot(cx_actual - cx_prev, cy_actual - cy_prev))
         var_w = abs(w - pw) / float(max(w, pw))
         var_h = abs(h - ph) / float(max(h, ph))
         if var_w > 0.20 or var_h > 0.20:
-            return False
+            variacion_tam_ok = False
+
+    desplazamiento_ok = (caja_previa is None or dist_desplazamiento <= UMBRAL_MOVIMIENTO_ESTABLE)
 
     # 3. Varianza de textura: descarta regiones homogeneas o manos tapando la lente
     y1, y2 = max(0, y), min(frame_gris.shape[0], y + h)
@@ -209,11 +214,15 @@ def verificar_rostro_estatico(caja_actual, caja_previa, frame_gris):
     if roi.size == 0:
         return False
 
-    varianza_laplaciana = cv2.Laplacian(roi, cv2.CV_64F).var()
-    if varianza_laplaciana < VARIANZA_MINIMA_TEXTURA:
-        return False
+    varianza_laplaciana = float(cv2.Laplacian(roi, cv2.CV_64F).var())
+    nitidez_ok = (varianza_laplaciana >= VARIANZA_MINIMA_TEXTURA)
 
-    return True
+    es_estable = bool(proporcion_ok and desplazamiento_ok and variacion_tam_ok and nitidez_ok)
+
+    if es_debug_activo():
+        mostrar_debug_estabilidad(roi, varianza_laplaciana, dist_desplazamiento, aspect_ratio, es_estable, frames_estables)
+
+    return es_estable
 
 def alinear_ojos(cara):
     """
@@ -256,9 +265,21 @@ def normalizar_cara(gris, caja=None):
     if cara.size == 0:
         return np.zeros(TAM_CARA, dtype=np.uint8)
 
+    debug_activo = es_debug_activo()
+    etapas_debug = {}
+    if debug_activo:
+        etapas_debug["crudo"] = cara.copy()
+        etapas_debug["brillo_medio"] = int(np.mean(cara))
+
     # Alineacion previa al recorte de margen
+    angulo_alineacion = None
     if ALINEAR_OJOS and _clasificador_ojos is not None:
+        angulo_alineacion = calcular_angulo_ojos(cara, _clasificador_ojos)
         cara = alinear_ojos(cara)
+
+    if debug_activo:
+        etapas_debug["alineada"] = cara.copy()
+        etapas_debug["angulo"] = angulo_alineacion
 
     # Descarte de margen exterior
     alto, ancho = cara.shape[:2]
@@ -269,12 +290,23 @@ def normalizar_cara(gris, caja=None):
     if recorte.size == 0:
         recorte = cara
 
+    if debug_activo:
+        etapas_debug["margen"] = recorte.copy()
+
     # Redimension a resolucion fija
     cara_redim = cv2.resize(recorte, TAM_CARA, interpolation=cv2.INTER_AREA)
 
     # CLAHE y desenfoque
     cara_clahe = _CLAHE.apply(cara_redim)
-    return cv2.GaussianBlur(cara_clahe, (3, 3), 0)
+    if debug_activo:
+        etapas_debug["clahe"] = cara_clahe.copy()
+
+    cara_final = cv2.GaussianBlur(cara_clahe, (3, 3), 0)
+    if debug_activo:
+        etapas_debug["final"] = cara_final.copy()
+        mostrar_debug_normalizacion(etapas_debug)
+
+    return cara_final
 
 def cargar_caras_confianza():
     """Carga en memoria los nombres y plantillas de rostros autorizados normalizadas."""
@@ -316,6 +348,7 @@ def identificar_rostro(roi_cara_byn, lista_nombres, lista_caras, umbral=UMBRAL_C
     """
     mejor_score = 1.0
     nombre_detectado = None
+    mejor_patron = None
 
     if not lista_caras or roi_cara_byn is None or roi_cara_byn.size == 0:
         return None, mejor_score
@@ -347,6 +380,10 @@ def identificar_rostro(roi_cara_byn, lista_nombres, lista_caras, umbral=UMBRAL_C
         if min_val < mejor_score:
             mejor_score = min_val
             nombre_detectado = lista_nombres[indice]
+            mejor_patron = patron
+
+    if es_debug_activo():
+        mostrar_debug_matching(roi_cara_byn, mejor_patron, nombre_detectado, mejor_score, umbral)
 
     if mejor_score < umbral:
         return nombre_detectado, mejor_score
@@ -370,6 +407,7 @@ def verificar_usuario_especifico(roi_cara_byn, plantillas_usuario, umbral=UMBRAL
     roi_suavizada = cv2.blur(roi_cara_byn, (3, 3))
     alto_roi, ancho_roi = roi_suavizada.shape[:2]
     mejor_score = 1.0
+    mejor_patron = None
 
     for patron in plantillas_usuario:
         if (patron.shape[1], patron.shape[0]) != (ancho_roi, alto_roi):
@@ -387,7 +425,12 @@ def verificar_usuario_especifico(roi_cara_byn, plantillas_usuario, umbral=UMBRAL
 
         if min_val < mejor_score:
             mejor_score = float(min_val)
+            mejor_patron = patron
 
     similitud = max(0.0, min(100.0, (1.0 - mejor_score) * 100.0))
     coincide = mejor_score < umbral
+
+    if es_debug_activo():
+        mostrar_debug_matching(roi_cara_byn, mejor_patron, "ACTIVO", mejor_score, umbral)
+
     return coincide, mejor_score, similitud

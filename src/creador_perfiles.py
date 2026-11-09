@@ -18,6 +18,13 @@ from config import (
     ESCALA
 )
 from vision import obtener_clasificador, detectar_caras, normalizar_cara
+from depurador import (
+    es_debug_activo,
+    toggle_debug,
+    cambiar_fase,
+    cerrar_debug_fase,
+    pausar_inspeccion_debug
+)
 from usuarios import (
     inicializar_entorno,
     verificar_admin,
@@ -32,68 +39,93 @@ from interfaz import (
 
 def capturar_poses_usuario(nombre_usuario, camara=None, clasificador=None):
     """Guia la captura de 2 poses faciales frontales normalizadas y las guarda en disco."""
-    camara_propia = False
-    if clasificador is None:
-        clasificador = obtener_clasificador()
-    if camara is None:
-        camara = cv2.VideoCapture(0)
-        camara_propia = True
+    cambiar_fase("creacion_perfil")
+    try:
+        camara_propia = False
+        if clasificador is None:
+            clasificador = obtener_clasificador()
+        if camara is None:
+            camara = cv2.VideoCapture(0)
+            camara_propia = True
 
-    if not camara.isOpened():
-        print("[ERROR] No es posible abrir la camara")
-        return False
+        if not camara.isOpened():
+            print("[ERROR] No es posible abrir la camara")
+            return False
 
-    poses = [
-        ("frente_normal", "Posa de FRENTE (Normal) - Pulsa ESPACIO"),
-        ("frente_sonriendo", "Posa de FRENTE (Sonriendo) - Pulsa ESPACIO")
-    ]
+        poses = [
+            ("frente_normal", "Posa de FRENTE (Normal) - Pulsa ESPACIO"),
+            ("frente_sonriendo", "Posa de FRENTE (Sonriendo) - Pulsa ESPACIO")
+        ]
 
-    for clave_pose, instruccion in poses:
-        while True:
-            ret, frame = camara.read()
-            if not ret:
-                if camara_propia:
-                    camara.release()
-                    cv2.destroyAllWindows()
-                return False
-            frame = cv2.flip(frame, 1)
+        for clave_pose, instruccion in poses:
+            while True:
+                ret, frame = camara.read()
+                if not ret:
+                    if camara_propia:
+                        camara.release()
+                        cv2.destroyAllWindows()
+                    return False
+                frame = cv2.flip(frame, 1)
 
-            frame_mostrar = frame.copy()
-            caras, frame_byn = detectar_caras(frame, clasificador)
+                frame_mostrar = frame.copy()
+                caras, frame_byn = detectar_caras(frame, clasificador)
 
-            for (x, y, ancho, alto) in caras:
-                cv2.rectangle(frame_mostrar, (x, y), (x + ancho, y + alto), COLOR_RECUADRO, GROSOR)
+                for (x, y, ancho, alto) in caras:
+                    cv2.rectangle(frame_mostrar, (x, y), (x + ancho, y + alto), COLOR_RECUADRO, GROSOR)
 
-            # Cartel superior de instruccion de la pose
-            cv2.putText(frame_mostrar, instruccion, (20, 40), FUENTE, ESCALA, COLOR_TEXTO, GROSOR)
+                # Si el modo debug esta activo, procesa y visualiza la normalizacion en vivo
+                if len(caras) > 0 and es_debug_activo():
+                    normalizar_cara(frame_byn, caja=caras[0])
 
-            # Barra inferior visible con boton de captura y boton Q para volver
-            h_f, w_f = frame_mostrar.shape[:2]
-            cv2.rectangle(frame_mostrar, (0, h_f - 36), (w_f, h_f), (15, 15, 22), -1)
-            cv2.putText(frame_mostrar, "[ESPACIO] Capturar fotograma  |  [Q] Volver a la pantalla anterior",
-                        (20, h_f - 12), FUENTE, 0.44, (0, 255, 255), 1)
+                # Cartel superior de instruccion de la pose
+                cv2.putText(frame_mostrar, instruccion, (20, 40), FUENTE, ESCALA, COLOR_TEXTO, GROSOR)
 
-            cv2.imshow("Autenticador Facial", frame_mostrar)
+                # Badge de modo debug
+                h_f, w_f = frame_mostrar.shape[:2]
+                if es_debug_activo():
+                    cv2.rectangle(frame_mostrar, (w_f - 145, 12), (w_f - 15, 38), (0, 60, 140), -1)
+                    cv2.rectangle(frame_mostrar, (w_f - 145, 12), (w_f - 15, 38), (0, 255, 255), 1)
+                    cv2.putText(frame_mostrar, "[DEBUG ON]", (w_f - 135, 30), cv2.FONT_HERSHEY_DUPLEX, 0.44, (0, 255, 255), 1)
 
-            tecla = cv2.waitKey(1) & 0xFF
-            if tecla == ord(' '):
-                if len(caras) == 0:
-                    continue
+                # Barra inferior visible con boton de captura, debug y boton Q para volver
+                cv2.rectangle(frame_mostrar, (0, h_f - 36), (w_f, h_f), (15, 15, 22), -1)
+                cv2.putText(frame_mostrar, "[ESPACIO] Capturar fotograma  |  [D] Modo Debug  |  [Q] Volver",
+                            (20, h_f - 12), FUENTE, 0.44, (0, 255, 255), 1)
 
-                recorte = normalizar_cara(frame_byn, caja=caras[0])
-                nombre_archivo = f"{CARPETA_CONFIANZA}/{nombre_usuario}_{clave_pose}.jpg"
-                cv2.imwrite(nombre_archivo, recorte)
-                break
-            elif tecla == ord('q') or tecla == ord('Q') or tecla == 27:
-                if camara_propia:
-                    camara.release()
-                    cv2.destroyAllWindows()
-                return False
+                cv2.imshow("Autenticador Facial", frame_mostrar)
 
-    if camara_propia:
-        camara.release()
-        cv2.destroyAllWindows()
-    return True
+                tecla = cv2.waitKey(1) & 0xFF
+                if tecla == ord(' '):
+                    if len(caras) == 0:
+                        continue
+
+                    recorte = normalizar_cara(frame_byn, caja=caras[0])
+
+                    # En modo debug, pausa e inspecciona el fotograma normalizado antes de guardar
+                    if es_debug_activo():
+                        msg_inspeccion = f"[DEBUG] Pose '{clave_pose}' normalizada. Pulsa [S] para guardar y continuar"
+                        confirmado = pausar_inspeccion_debug(frame_mostrar, msg_inspeccion, tecla_continuar='s')
+                        if not confirmado:
+                            continue
+
+                    nombre_archivo = f"{CARPETA_CONFIANZA}/{nombre_usuario}_{clave_pose}.jpg"
+                    cv2.imwrite(nombre_archivo, recorte)
+                    break
+                elif tecla in (ord('d'), ord('D')):
+                    toggle_debug()
+                elif tecla == ord('q') or tecla == ord('Q') or tecla == 27:
+                    if camara_propia:
+                        camara.release()
+                        cv2.destroyAllWindows()
+                    return False
+
+        if camara_propia:
+            camara.release()
+            cv2.destroyAllWindows()
+        return True
+    finally:
+        cerrar_debug_fase("creacion_perfil")
+        cambiar_fase("menu")
 
 def crear_perfil_interactivo(camara=None, clasificador=None):
     """
@@ -102,6 +134,7 @@ def crear_perfil_interactivo(camara=None, clasificador=None):
     roles y capturar sus plantillas faciales sin recurrir a la terminal.
     """
     inicializar_entorno()
+    cambiar_fase("menu")
     camara_propia = False
     if clasificador is None:
         clasificador = obtener_clasificador()

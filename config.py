@@ -87,3 +87,22 @@ COLOR_RETO_ACTIVO = COLOR_ACTIVO
 GROSOR = 2
 FUENTE = cv2.FONT_HERSHEY_COMPLEX
 ESCALA = 0.7
+
+# Parametros y ventanas del Modo Debug
+MODO_DEBUG_POR_DEFECTO = False
+VENTANA_PRINCIPAL = "Autenticador Facial"
+VENTANA_DEBUG_NORMALIZACION = "Debug - Pipeline Normalizacion"
+VENTANA_DEBUG_ESTABILIDAD = "Debug - Estabilidad y Nitidez"
+VENTANA_DEBUG_MATCHING = "Debug - Matching Facial"
+VENTANA_DEBUG_BOCA = "Debug - Analisis Boca y Dientes"
+VENTANA_DEBUG_OJOS = "Debug - Analisis Ocular (Regla K)"
+VENTANA_DEBUG_CEJAS = "Debug - Analisis Cejas"
+
+VENTANAS_DEBUG = [
+    VENTANA_DEBUG_NORMALIZACION,
+    VENTANA_DEBUG_ESTABILIDAD,
+    VENTANA_DEBUG_MATCHING,
+    VENTANA_DEBUG_BOCA,
+    VENTANA_DEBUG_OJOS,
+    VENTANA_DEBUG_CEJAS
+]

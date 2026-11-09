@@ -3,6 +3,7 @@ import numpy as np
 import cv2
 
 from config import FUENTE, GROSOR, COLOR_TEXTO, COLOR_RECUADRO
+from depurador import es_debug_activo
 
 def formatear_duracion(segundos):
     """Convierte una duracion en segundos a formato legible HHh MMm SSs o MMm SSs."""
@@ -51,12 +52,18 @@ def dibujar_barra_menu_principal(frame):
     cv2.putText(frame, "|", (btn_q_x - 25, y_btns), cv2.FONT_HERSHEY_SIMPLEX, 0.50, (90, 90, 90), 1)
     cv2.putText(frame, "[Q] Salir", (btn_q_x, y_btns), cv2.FONT_HERSHEY_DUPLEX, 0.54, (0, 165, 255), 1)
 
+    # Badge de modo debug si esta activo
+    if es_debug_activo():
+        cv2.rectangle(frame, (w - 145, 12), (w - 15, 38), (0, 60, 140), -1)
+        cv2.rectangle(frame, (w - 145, 12), (w - 15, 38), (0, 255, 255), 1)
+        cv2.putText(frame, "[DEBUG ON]", (w - 135, 30), cv2.FONT_HERSHEY_DUPLEX, 0.44, (0, 255, 255), 1)
+
     # Pie de pagina con ayuda visible
     y_inf = h - 34
     overlay_inf = frame.copy()
     cv2.rectangle(overlay_inf, (0, y_inf), (w, h), (15, 15, 22), -1)
     cv2.addWeighted(overlay_inf, 0.82, frame, 0.18, 0, frame)
-    cv2.putText(frame, "[1] Crear perfil  |  [2] Autenticador  |  [Q] Salir de la aplicacion",
+    cv2.putText(frame, "[1] Crear perfil  |  [2] Autenticador  |  [D] Modo Debug  |  [Q] Salir de la aplicacion",
                 (20, h - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (210, 210, 210), 1)
 
 def dibujar_hud_sesion(frame, usuario, rol, stats, duracion_actual, mostrar_detalles, mostrar_opciones, tiempo_ausente=0.0, similitud_sesion=None):
@@ -104,6 +111,12 @@ def dibujar_hud_sesion(frame, usuario, rol, stats, duracion_actual, mostrar_deta
 
     cv2.addWeighted(overlay, 0.84, frame, 0.16, 0, frame)
 
+    # Badge central de modo debug si esta activo
+    if es_debug_activo():
+        cv2.rectangle(frame, (w // 2 - 60, 14), (w // 2 + 60, 42), (0, 60, 140), -1)
+        cv2.rectangle(frame, (w // 2 - 60, 14), (w // 2 + 60, 42), (0, 255, 255), 1)
+        cv2.putText(frame, "[DEBUG ON]", (w // 2 - 50, 32), cv2.FONT_HERSHEY_DUPLEX, 0.44, (0, 255, 255), 1)
+
     # Textos tarjeta izquierda
     cv2.putText(frame, f"Nombre de usuario: {usuario.upper()}", (x_izq + 10, y_izq + 25), cv2.FONT_HERSHEY_DUPLEX, 0.50, (0, 255, 255), 1)
     texto_m = "m - Ocultar detalles" if mostrar_detalles else "m - Mostrar mas detalles"
@@ -116,8 +129,8 @@ def dibujar_hud_sesion(frame, usuario, rol, stats, duracion_actual, mostrar_deta
     col_o = (0, 255, 255) if mostrar_opciones else (180, 180, 180)
     cv2.putText(frame, texto_o, (x_der + 12, y_der + 48), cv2.FONT_HERSHEY_SIMPLEX, 0.42, col_o, 1)
 
-    # Texto de la barra inferior con boton Q para volver
-    cv2.putText(frame, "[Q] Volver al menu principal  |  [m] Estadisticas  |  [o] Opciones",
+    # Texto de la barra inferior con boton Q para volver y D para depurar
+    cv2.putText(frame, "[Q] Volver al menu  |  [m] Estadisticas  |  [o] Opciones  |  [D] Debug",
                 (20, h - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.43, (0, 255, 255), 1)
 
     # Despliegue panel de estadisticas

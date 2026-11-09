@@ -52,6 +52,14 @@ from usuarios import (
     eliminar_usuario
 )
 from gestos import EvaluadorGestos
+from depurador import (
+    es_debug_activo,
+    toggle_debug,
+    cerrar_ventanas_debug,
+    cambiar_fase,
+    cerrar_debug_fase,
+    pausar_inspeccion_debug
+)
 from interfaz import (
     formatear_duracion,
     dibujar_barra_progreso,
@@ -74,7 +82,7 @@ def actualizar_estabilidad_facial(caja_actual, ultima_caja, frame_byn, frames_es
     aplicando penalizacion de histeresis (-2) en caso de movimiento.
     Retorna (es_estable, nuevo_contador_frames).
     """
-    es_estable = verificar_rostro_estatico(caja_actual, ultima_caja, frame_byn)
+    es_estable = verificar_rostro_estatico(caja_actual, ultima_caja, frame_byn, frames_estables)
     if es_estable:
         nuevo_contador = frames_estables + 1
     else:
@@ -147,55 +155,68 @@ def validar_contrasena_facial(camara, clasificador):
     Ejecuta el reto de 3 gestos aleatorios en la ventana de la camara.
     Retorna True si el usuario supera la prueba de vida, o False en caso de timeout o cancelacion.
     """
-    evaluador = EvaluadorGestos()
-    print("[PRUEBA DE VIDA] Sigue las instrucciones que aparecen en la ventana de la camara.")
+    cambiar_fase("reto_gestos")
+    try:
+        evaluador = EvaluadorGestos()
+        print("[PRUEBA DE VIDA] Sigue las instrucciones que aparecen en la ventana de la camara.")
 
-    while True:
-        ret, frame = camara.read()
-        if not ret:
-            return False
-        frame = cv2.flip(frame, 1)
-
-        caras, _ = detectar_caras(frame, clasificador)
-        if len(caras) > 0:
-            estado_reto, frame_hud = evaluador.procesar_fotograma(frame, caras[0])
-            if estado_reto == "EXITO":
-                cv2.putText(frame_hud, "ACCESO AUTORIZADO", (frame.shape[1] // 4, frame.shape[0] // 2),
-                            FUENTE, 1.0, (0, 255, 0), 3)
-                cv2.imshow("Autenticador Facial", frame_hud)
-                cv2.waitKey(600)
-                return True
-            elif estado_reto == "TIMEOUT":
-                reproducir_audio(AUDIO_ERROR)
-                cv2.putText(frame_hud, "TIEMPO AGOTADO - BLOQUEANDO", (frame.shape[1] // 6, frame.shape[0] // 2),
-                            FUENTE, 0.8, (0, 0, 255), 2)
-                cv2.imshow("Autenticador Facial", frame_hud)
-                cv2.waitKey(800)
+        while True:
+            ret, frame = camara.read()
+            if not ret:
                 return False
-        else:
-            frame_hud = frame.copy()
-            if evaluador.calibrado and evaluador.tiempo_inicio_gesto is not None:
-                tiempo_restante = max(0.0, TIEMPO_MAXIMO_GESTO - (time.time() - evaluador.tiempo_inicio_gesto))
-                if tiempo_restante <= 0.0:
-                    reproducir_audio(AUDIO_ERROR)
-                    cv2.putText(frame_hud, "TIEMPO AGOTADO - BLOQUEANDO", (frame.shape[1] // 6, frame.shape[0] // 2),
-                                FUENTE, 0.8, (0, 0, 255), 2)
+            frame = cv2.flip(frame, 1)
+
+            caras, _ = detectar_caras(frame, clasificador)
+            if len(caras) > 0:
+                estado_reto, frame_hud = evaluador.procesar_fotograma(frame, caras[0])
+                if estado_reto == "EXITO":
+                    cv2.putText(frame_hud, "ACCESO AUTORIZADO", (frame.shape[1] // 4, frame.shape[0] // 2),
+                                FUENTE, 1.0, (0, 255, 0), 3)
                     cv2.imshow("Autenticador Facial", frame_hud)
-                    cv2.waitKey(800)
-                    return False
+                    cv2.waitKey(600)
+                    return True
+                elif estado_reto == "TIMEOUT":
+                    if not es_debug_activo():
+                        reproducir_audio(AUDIO_ERROR)
+                        cv2.putText(frame_hud, "TIEMPO AGOTADO - BLOQUEANDO", (frame.shape[1] // 6, frame.shape[0] // 2),
+                                    FUENTE, 0.8, (0, 0, 255), 2)
+                        cv2.imshow("Autenticador Facial", frame_hud)
+                        cv2.waitKey(800)
+                        return False
+            else:
+                frame_hud = frame.copy()
+                if evaluador.calibrado and evaluador.tiempo_inicio_gesto is not None and not es_debug_activo():
+                    tiempo_restante = max(0.0, TIEMPO_MAXIMO_GESTO - (time.time() - evaluador.tiempo_inicio_gesto))
+                    if tiempo_restante <= 0.0:
+                        reproducir_audio(AUDIO_ERROR)
+                        cv2.putText(frame_hud, "TIEMPO AGOTADO - BLOQUEANDO", (frame.shape[1] // 6, frame.shape[0] // 2),
+                                    FUENTE, 0.8, (0, 0, 255), 2)
+                        cv2.imshow("Autenticador Facial", frame_hud)
+                        cv2.waitKey(800)
+                        return False
 
-            cv2.putText(frame_hud, "SITUATE FRENTE A LA CAMARA", (20, 60),
-                        FUENTE, 0.7, (0, 0, 255), 2)
+                cv2.putText(frame_hud, "SITUATE FRENTE A LA CAMARA", (20, 60),
+                            FUENTE, 0.7, (0, 0, 255), 2)
 
-        # Banner inferior para salir / cancelar reto
-        h_hud, w_hud = frame_hud.shape[:2]
-        cv2.rectangle(frame_hud, (0, h_hud - 34), (w_hud, h_hud), (15, 15, 22), -1)
-        cv2.putText(frame_hud, "[Q] Cancelar reto y volver atras", (20, h_hud - 11), FUENTE, 0.44, (0, 255, 255), 1)
+            # Banner inferior para salir / cancelar reto y conmutar debug
+            h_hud, w_hud = frame_hud.shape[:2]
+            cv2.rectangle(frame_hud, (0, h_hud - 34), (w_hud, h_hud), (15, 15, 22), -1)
+            cv2.putText(frame_hud, "[Q] Cancelar reto  |  [D] Modo Debug", (20, h_hud - 11), FUENTE, 0.44, (0, 255, 255), 1)
 
-        cv2.imshow("Autenticador Facial", frame_hud)
-        tecla = cv2.waitKey(1) & 0xFF
-        if tecla == ord('q') or tecla == ord('Q') or tecla == 27:
-            return False
+            # Badge de modo debug
+            if es_debug_activo():
+                cv2.rectangle(frame_hud, (w_hud - 145, 12), (w_hud - 15, 38), (0, 60, 140), -1)
+                cv2.rectangle(frame_hud, (w_hud - 145, 12), (w_hud - 15, 38), (0, 255, 255), 1)
+                cv2.putText(frame_hud, "[DEBUG ON]", (w_hud - 135, 30), cv2.FONT_HERSHEY_DUPLEX, 0.44, (0, 255, 255), 1)
+
+            cv2.imshow("Autenticador Facial", frame_hud)
+            tecla = cv2.waitKey(1) & 0xFF
+            if tecla in (ord('d'), ord('D')):
+                toggle_debug()
+            elif tecla == ord('q') or tecla == ord('Q') or tecla == 27:
+                return False
+    finally:
+        cerrar_debug_fase("reto_gestos")
 
 def ejecutar_guardia(camara=None, clasificador=None):
     """Inicia el ciclo principal de vigilancia y autenticacion continua."""
@@ -283,7 +304,10 @@ def ejecutar_guardia(camara=None, clasificador=None):
         ultima_caja = None
         frames_estables_retorno = 0
         ultima_caja_retorno = None
+        cerrar_ventanas_debug()
+        cambiar_fase("guardia_login")
 
+    cambiar_fase("guardia_login")
     try:
         while True:
             ret, frame = camara.read()
@@ -302,8 +326,14 @@ def ejecutar_guardia(camara=None, clasificador=None):
             if not estado_sesion:
                 # Barra inferior permanente en modo guardia
                 cv2.rectangle(frame_mostrar, (0, h_f - 34), (w_f, h_f), (15, 15, 22), -1)
-                cv2.putText(frame_mostrar, "[Q] Volver al menu principal  |  [I] Acceso Invitado",
+                cv2.putText(frame_mostrar, "[Q] Menu principal  |  [I] Invitado  |  [D] Modo Debug",
                             (20, h_f - 11), FUENTE, 0.44, (0, 255, 255), 1)
+
+                # Badge de modo debug
+                if es_debug_activo():
+                    cv2.rectangle(frame_mostrar, (w_f - 145, 12), (w_f - 15, 38), (0, 60, 140), -1)
+                    cv2.rectangle(frame_mostrar, (w_f - 145, 12), (w_f - 15, 38), (0, 255, 255), 1)
+                    cv2.putText(frame_mostrar, "[DEBUG ON]", (w_f - 135, 30), cv2.FONT_HERSHEY_DUPLEX, 0.44, (0, 255, 255), 1)
 
                 if len(caras) == 0:
                     frames_estables = 0
@@ -341,7 +371,16 @@ def ejecutar_guardia(camara=None, clasificador=None):
                             cv2.imshow("Autenticador Facial", frame_mostrar)
                             cv2.waitKey(1)
 
+                            similitud_login = max(0.0, min(100.0, (1.0 - score) * 100.0))
+                            if es_debug_activo():
+                                msg_pausa = f"[DEBUG] Rostro identificado: {usuario.upper()} ({similitud_login:.1f}%). Pulsa [S] para continuar"
+                                if not pausar_inspeccion_debug(frame_mostrar, msg_pausa, tecla_continuar='s'):
+                                    frames_estables = 0
+                                    ultima_caja = None
+                                    continue
+
                             # Verificacion diferenciada segun rol
+                            cerrar_debug_fase("guardia_login")
                             if rol_usr == "Invitado":
                                 print(f"\n[INVITADO DETECTADO] Acceso directo para '{usuario}'. Iniciando reto facial...")
                                 if validar_contrasena_facial(camara, clasificador):
@@ -364,10 +403,12 @@ def ejecutar_guardia(camara=None, clasificador=None):
                                     contador_frames_sesion = 0
                                     frames_estables = 0
                                     ultima_caja = None
+                                    cambiar_fase("sesion_activa")
                                 else:
                                     print("\n[ALERTA] Reto facial cancelado o tiempo agotado.")
                                     frames_estables = 0
                                     ultima_caja = None
+                                    cambiar_fase("guardia_login")
                             else:
                                 # Autenticacion mediante la interfaz visual en pantalla
                                 resultado_pass = verificar_password_interfaz(camara, usuario, datos_sistema)
@@ -394,6 +435,7 @@ def ejecutar_guardia(camara=None, clasificador=None):
                                         ultima_caja = None
                                         frames_estables_retorno = 0
                                         ultima_caja_retorno = None
+                                        cambiar_fase("sesion_activa")
                                     else:
                                         print("\n[ALERTA INTRUSO] Prueba de gestos no superada o tiempo agotado.")
                                         guardar_evidencia_intruso(camara, frame)
@@ -402,10 +444,17 @@ def ejecutar_guardia(camara=None, clasificador=None):
                                         time.sleep(5)
                                         frames_estables = 0
                                         ultima_caja = None
+                                        cambiar_fase("guardia_login")
                                 else:
                                     frames_estables = 0
                                     ultima_caja = None
+                                    cambiar_fase("guardia_login")
                         else:
+                            sim_intr = max(0.0, min(100.0, (1.0 - score) * 100.0))
+                            if es_debug_activo():
+                                msg_intruso = f"[DEBUG] Intruso no autorizado (Similitud: {sim_intr:.1f}%). Pulsa [S] para bloquear"
+                                pausar_inspeccion_debug(frame_mostrar, msg_intruso, tecla_continuar='s')
+                            cerrar_debug_fase("guardia_login")
                             cv2.imshow("Autenticador Facial", frame_mostrar)
                             cv2.waitKey(1)
                             print("\n[ALERTA INTRUSO] Persona no autorizada detectada frente al equipo.")
@@ -414,6 +463,7 @@ def ejecutar_guardia(camara=None, clasificador=None):
                             time.sleep(5)
                             frames_estables = 0
                             ultima_caja = None
+                            cambiar_fase("guardia_login")
 
             # -------------------------------------------------------------
             # ESTADO 2: SESION ACTIVA (EL USUARIO YA ACCEDIO)
@@ -456,6 +506,7 @@ def ejecutar_guardia(camara=None, clasificador=None):
 
                     if tiempo_inicio_ausencia is not None and ultimo_tiempo_ausencia >= TIEMPO_DISPARO_REENGANCHE:
                         verificando_retorno = True
+                        cambiar_fase("retorno_ausencia")
                         frames_estables_retorno = 0
                         ultima_caja_retorno = None
                         buffer_scores_retorno = []
@@ -497,12 +548,25 @@ def ejecutar_guardia(camara=None, clasificador=None):
                             if len(buffer_scores_retorno) >= FRAMES_CONFIRMACION_RETORNO:
                                 score_medio = float(np.mean(buffer_scores_retorno))
                                 if score_medio < UMBRAL_REENGANCHE_SESION:
+                                    sim_ret = max(0.0, min(100.0, (1.0 - score_medio) * 100.0))
+                                    if es_debug_activo():
+                                        msg_ret = f"[DEBUG] Retorno verificado: {usuario_autenticado.upper()} ({sim_ret:.1f}%). Pulsa [S] para reanudar sesion"
+                                        pausar_inspeccion_debug(frame_mostrar, msg_ret, tecla_continuar='s')
+
                                     verificando_retorno = False
+                                    cerrar_debug_fase("retorno_ausencia")
+                                    cambiar_fase("sesion_activa")
                                     frames_estables_retorno = 0
                                     ultima_caja_retorno = None
                                     buffer_scores_retorno = []
                                     tiempo_confirmacion_retorno = time.time()
                                 else:
+                                    sim_usurp = max(0.0, min(100.0, (1.0 - score_medio) * 100.0))
+                                    if es_debug_activo():
+                                        msg_usurp = f"[DEBUG] USURPACION DETECTADA ({sim_usurp:.1f}% vs umbral). Pulsa [S] para continuar bloqueo"
+                                        pausar_inspeccion_debug(frame_mostrar, msg_usurp, tecla_continuar='s')
+
+                                    cerrar_debug_fase("retorno_ausencia")
                                     cv2.rectangle(frame_mostrar, (x, y), (x + ancho, y + alto), (0, 0, 255), GROSOR)
                                     cv2.putText(frame_mostrar, "ALERTA: USURPACION DE SESION", (20, 80), FUENTE, 0.70, (0, 0, 255), 2)
                                     cv2.imshow("Autenticador Facial", frame_mostrar)
@@ -575,8 +639,10 @@ def ejecutar_guardia(camara=None, clasificador=None):
                 if len(caras) > 0:
                     roi_cara = normalizar_cara(frame_byn, caja=caras[0])
                     print("\n[INVITADO] Iniciando sesion como invitado temporal...")
+                    cerrar_debug_fase("guardia_login")
                     if validar_contrasena_facial(camara, clasificador):
                         estado_sesion = True
+                        cambiar_fase("sesion_activa")
                         usuario_autenticado = "invitado"
                         plantillas_usuario_activo = [roi_cara]
                         tiempo_inicio_sesion = time.time()
@@ -598,6 +664,8 @@ def ejecutar_guardia(camara=None, clasificador=None):
                         contador_frames_sesion = 0
                         frames_estables = 0
                         ultima_caja = None
+                    else:
+                        cambiar_fase("guardia_login")
 
             elif tecla == ord('m') or tecla == ord('M'):
                 if estado_sesion:
@@ -606,6 +674,9 @@ def ejecutar_guardia(camara=None, clasificador=None):
             elif tecla == ord('o') or tecla == ord('O'):
                 if estado_sesion:
                     mostrar_opciones = not mostrar_opciones
+
+            elif tecla in (ord('d'), ord('D')):
+                toggle_debug()
 
             elif estado_sesion and mostrar_opciones:
                 info_usr = datos_sistema.get("usuarios", {}).get(usuario_autenticado, {})
@@ -797,6 +868,8 @@ def ejecutar_guardia(camara=None, clasificador=None):
             limpiar_sesion_invitado(usuario_autenticado)
         print("\n[INFO] Autenticador detenido por el usuario.")
     finally:
+        cerrar_ventanas_debug()
+        cambiar_fase("menu")
         if camara_propia:
             camara.release()
             cv2.destroyAllWindows()
@@ -807,6 +880,7 @@ def ejecutar_aplicacion(camara=None, clasificador=None):
     y un menu superior para seleccionar entre Crear perfil o Autenticador.
     """
     inicializar_entorno()
+    cambiar_fase("menu")
     camara_propia = False
     if clasificador is None:
         clasificador = obtener_clasificador()
@@ -840,14 +914,20 @@ def ejecutar_aplicacion(camara=None, clasificador=None):
             tecla = cv2.waitKey(20) & 0xFF
             if tecla == ord('1'):
                 crear_perfil_interactivo(camara, clasificador)
+                cambiar_fase("menu")
             elif tecla == ord('2'):
                 res_guardia = ejecutar_guardia(camara, clasificador)
+                cambiar_fase("menu")
                 if res_guardia == "SALIR":
                     break
+            elif tecla in (ord('d'), ord('D')):
+                toggle_debug()
             elif tecla == ord('q') or tecla == ord('Q') or tecla == 27:
                 print("Saliendo de la aplicacion...")
                 break
     finally:
+        cerrar_ventanas_debug()
+        cambiar_fase("menu")
         if camara_propia:
             camara.release()
             cv2.destroyAllWindows()
