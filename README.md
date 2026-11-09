@@ -1,6 +1,6 @@
 # OpenCV Trusted Faces
 
-Sistema inteligente de control de acceso y vigilancia biométrica continua basado en visión artificial con **OpenCV** y **Python**. El proyecto implementa reconocimiento facial con normalización y alineación de ojos, retos dinámicos de prueba de vida (liveness detection mediante gestos faciales), control de acceso basado en roles (**Total**, **Operador** e **Invitado**), feedback auditivo, estadísticas en tiempo real y defensa proactiva contra intrusos y usurpaciones de sesión.
+Sistema inteligente de control de acceso y vigilancia biométrica continua basado en visión artificial con **OpenCV** y **Python**. El proyecto implementa reconocimiento facial con normalización y alineación de ojos, retos dinámicos de prueba de vida (liveness detection mediante gestos faciales), control de acceso basado en roles (**Total**, **Operador** e **Invitado**), estadísticas en tiempo real y defensa proactiva contra intrusos y usurpaciones de sesión.
 
 ---
 
@@ -11,9 +11,8 @@ Sistema inteligente de control de acceso y vigilancia biométrica continua basad
 3. [Requisitos e Instalación](#requisitos-e-instalación)
 4. [Guía de Uso](#guía-de-uso)
 5. [Ejemplos de Flujos de Ejecución](#ejemplos-de-flujos-de-ejecución)
-6. [Controles y Atajos de Teclado](#controles-y-atajos-de-teclado)
-7. [Configuración del Sistema](#configuración-del-sistema)
-8. [Licencia](#licencia)
+6. [Configuración del Sistema](#configuración-del-sistema)
+7. [Licencia](#licencia)
 
 ---
 
@@ -193,26 +192,6 @@ Al iniciarse, se abrirá la ventana de la cámara con la barra superior de opcio
 ### Flujo 5: Detección de intrusos y guardia de ausencia
 - **Persona no autorizada**: Si un rostro desconocido permanece frente a la cámara en modo guardia o si se intenta usurpar la sesión activa de otro usuario, el sistema emitirá el audio de alerta (`error.mp3`), guardará dos fotografías consecutivas de evidencia en `recursos/imagenes/intrusos/` y suspenderá/bloqueará inmediatamente el equipo.
 - **Ausencia prolongada**: Si el usuario autorizado se retira del encuadre durante una sesión activa, un banner inferior mostrará la cuenta atrás de 10 segundos. Si regresa antes de que expire, el sistema verifica sus facciones y reanuda la sesión; si transcurren los 10 segundos, la sesión se cierra automáticamente.
-
----
-
-## Controles y Atajos de Teclado
-
-| Tecla / Atajo | Contexto | Acción |
-| :--- | :--- | :--- |
-| **`1`** | Menú principal | Acceder al Creador de Perfiles interactivo |
-| **`2`** | Menú principal | Iniciar el Autenticador en Modo Guardia |
-| **`Q` / `ESC`** | Menú principal | **Salir y cerrar la aplicación** |
-| **`Q` / `ESC`** | Modo Guardia / Reto Facial | Volver atrás al Menú Principal / Cancelar reto |
-| **`Q` / `ESC`** | Sesión activa | Cerrar sesión y regresar al Menú Principal |
-| **`Q` / `ESC`** | Modales y Selectores | Cancelar operación y volver a la pantalla anterior |
-| **`I`** | Modo Guardia | Iniciar acceso rápido en modo Invitado |
-| **`m`** | Sesión activa | Desplegar / ocultar panel de estadísticas detalladas |
-| **`o`** | Sesión activa | Desplegar / ocultar panel de opciones de usuario |
-| **`1` .. `5`** | Panel de opciones (`o`) | Seleccionar subopción según rol activo |
-| **`ESPACIO`** | Registro de poses | Capturar fotograma actual del rostro |
-| **`ENTER`** | Modales de texto | Confirmar texto o contraseña introducida |
-| **`BACKSPACE`** | Modales de texto | Borrar último carácter introducido |
 
 ---
 
