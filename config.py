@@ -1,14 +1,17 @@
 import os
 import cv2
 
-# Rutas del sistema
-CARPETA_CONFIANZA = "imagenes/confianza"
-CARPETA_INTRUSOS = "imagenes/intrusos"
-CARPETA_DATOS = "datos"
-CARPETA_AUDIOS = "audios"
-ARCHIVO_CONFIG = "datos/usuarios.json"
-RUTA_CASCADE_FACE = "haarcascades/haarcascade_frontalface_default.xml"
-RUTA_CASCADE_EYE = "haarcascades/haarcascade_eye.xml"
+# Rutas del sistema dentro del directorio recursos/
+# Se utilizan rutas relativas a la raiz para compatibilidad con OpenCV en Windows ante rutas con tildes o caracteres especiales
+CARPETA_RECURSOS = "recursos"
+CARPETA_CONFIANZA = os.path.join(CARPETA_RECURSOS, "imagenes", "confianza")
+CARPETA_INTRUSOS = os.path.join(CARPETA_RECURSOS, "imagenes", "intrusos")
+CARPETA_DATOS = os.path.join(CARPETA_RECURSOS, "datos")
+CARPETA_AUDIOS = os.path.join(CARPETA_RECURSOS, "audios")
+ARCHIVO_CONFIG = os.path.join(CARPETA_DATOS, "usuarios.json")
+CARPETA_HAARCASCADES = os.path.join(CARPETA_RECURSOS, "haarcascades")
+RUTA_CASCADE_FACE = os.path.join(CARPETA_HAARCASCADES, "haarcascade_frontalface_default.xml")
+RUTA_CASCADE_EYE = os.path.join(CARPETA_HAARCASCADES, "haarcascade_eye.xml")
 RUTA_CASCADE = RUTA_CASCADE_FACE
 
 # Rutas de audios de feedback
