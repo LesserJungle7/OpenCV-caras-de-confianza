@@ -193,7 +193,7 @@ def dibujar_hud(frame_mostrar, paso_actual, total_pasos, nombre_gesto, tiempo_re
 
     # Encabezado del reto
     descripcion = GESTOS_DESCRIPCION.get(nombre_gesto, nombre_gesto)
-    titulo = f"CONTRASENA FACIAL - RETO [{paso_actual}/{total_pasos}]"
+    titulo = f"CONTRASEÑA FACIAL - RETO [{paso_actual}/{total_pasos}]"
     cv2.putText(frame_mostrar, titulo, (20, 30), FUENTE, 0.65, (0, 255, 255), 2)
 
     # Instruccion del gesto actual

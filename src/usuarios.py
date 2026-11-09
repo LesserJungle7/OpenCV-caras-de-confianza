@@ -44,6 +44,50 @@ def obtener_usuario(nombre):
     datos = cargar_usuarios()
     return datos.get("usuarios", {}).get(nombre)
 
+def cambiar_password_usuario(nombre, nueva_pass):
+    """Actualiza la contraseña de un usuario registrado o del administrador."""
+    datos = cargar_usuarios()
+    modificado = False
+    if nombre == "admin":
+        datos["admin_pass"] = nueva_pass
+        modificado = True
+    if "usuarios" in datos and nombre in datos["usuarios"]:
+        datos["usuarios"][nombre]["password"] = nueva_pass
+        modificado = True
+    if modificado:
+        guardar_usuarios(datos)
+        return True
+    return False
+
+def listar_usuarios():
+    """Devuelve una lista de tuplas (nombre, rol) de los usuarios registrados."""
+    datos = cargar_usuarios()
+    usuarios_dict = datos.get("usuarios", {})
+    return [(nom, info.get("rol", "Operador")) for nom, info in usuarios_dict.items()]
+
+def eliminar_usuario(nombre):
+    """Elimina al usuario del archivo JSON de configuracion y borra sus imagenes de confianza."""
+    datos = cargar_usuarios()
+    eliminado = False
+    if "usuarios" in datos and nombre in datos["usuarios"]:
+        del datos["usuarios"][nombre]
+        guardar_usuarios(datos)
+        eliminado = True
+
+    # Borrar imagenes de confianza asociadas al usuario
+    if os.path.exists(CARPETA_CONFIANZA):
+        for archivo in os.listdir(CARPETA_CONFIANZA):
+            prefijo = f"{nombre}_"
+            if archivo.lower().startswith(prefijo.lower()) and archivo.lower().endswith((".jpg", ".png", ".jpeg")):
+                ruta_img = os.path.join(CARPETA_CONFIANZA, archivo)
+                try:
+                    os.remove(ruta_img)
+                    eliminado = True
+                except OSError:
+                    pass
+
+    return eliminado
+
 def registrar_usuario(nombre, password, rol):
     """Agrega o actualiza un usuario en la configuracion preservando estadisticas existentes."""
     datos = cargar_usuarios()
