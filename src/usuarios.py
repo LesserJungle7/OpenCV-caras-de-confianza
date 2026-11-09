@@ -117,7 +117,11 @@ def obtener_estadisticas_usuario(nombre):
             "similitud_acumulada": 0.0,
             "muestras_similitud": 0,
             "similitud_media": 0.0,
-            "intrusos_ultima_sesion": 0
+            "intrusos_bloqueo_previo": 0,
+            "intrusos_ultima_sesion": 0,
+            "usurpaciones_detectadas": 0,
+            "retornos_exitosos": 0,
+            "ultimo_incidente_seguridad": None
         }
     stats = usuario.get("estadisticas", {})
     return {
@@ -128,7 +132,11 @@ def obtener_estadisticas_usuario(nombre):
         "similitud_acumulada": stats.get("similitud_acumulada", 0.0),
         "muestras_similitud": stats.get("muestras_similitud", 0),
         "similitud_media": stats.get("similitud_media", 0.0),
-        "intrusos_ultima_sesion": stats.get("intrusos_ultima_sesion", 0)
+        "intrusos_bloqueo_previo": stats.get("intrusos_bloqueo_previo", stats.get("intrusos_ultima_sesion", 0)),
+        "intrusos_ultima_sesion": stats.get("intrusos_ultima_sesion", 0),
+        "usurpaciones_detectadas": stats.get("usurpaciones_detectadas", 0),
+        "retornos_exitosos": stats.get("retornos_exitosos", 0),
+        "ultimo_incidente_seguridad": stats.get("ultimo_incidente_seguridad")
     }
 
 def registrar_inicio_sesion(nombre, similitud_inicial=None):
@@ -150,7 +158,11 @@ def registrar_inicio_sesion(nombre, similitud_inicial=None):
             "similitud_acumulada": 0.0,
             "muestras_similitud": 0,
             "similitud_media": 0.0,
-            "intrusos_ultima_sesion": 0
+            "intrusos_bloqueo_previo": 0,
+            "intrusos_ultima_sesion": 0,
+            "usurpaciones_detectadas": 0,
+            "retornos_exitosos": 0,
+            "ultimo_incidente_seguridad": None
         }
     
     stats = usuario["estadisticas"]
@@ -158,9 +170,11 @@ def registrar_inicio_sesion(nombre, similitud_inicial=None):
     
     # Contar intentos de intrusion ocurridos desde la sesion previa
     if ultimo_cierre is not None:
-        stats["intrusos_ultima_sesion"] = contar_intrusos_desde(ultimo_cierre)
+        intrusos_detectados = contar_intrusos_desde(ultimo_cierre)
     else:
-        stats["intrusos_ultima_sesion"] = 0
+        intrusos_detectados = 0
+    stats["intrusos_bloqueo_previo"] = intrusos_detectados
+    stats["intrusos_ultima_sesion"] = intrusos_detectados
 
     stats["inicios_sesion"] = stats.get("inicios_sesion", 0) + 1
     stats["ultimo_acceso"] = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -173,8 +187,31 @@ def registrar_inicio_sesion(nombre, similitud_inicial=None):
 
     guardar_usuarios(datos)
 
-def registrar_fin_sesion(nombre, duracion_segundos):
-    """Suma la duracion de la sesion al tiempo acumulado y guarda el timestamp de cierre."""
+def registrar_evento_seguridad(nombre, tipo_evento="usurpacion"):
+    """Registra un incidente de seguridad asociado a la sesion del usuario."""
+    datos = cargar_usuarios()
+    if "usuarios" not in datos or nombre not in datos["usuarios"]:
+        return
+    stats = datos["usuarios"][nombre].setdefault("estadisticas", {})
+    if tipo_evento in ("usurpacion", "usurpacion_retorno"):
+        stats["usurpaciones_detectadas"] = stats.get("usurpaciones_detectadas", 0) + 1
+    stats["ultimo_incidente_seguridad"] = f"{time.strftime('%Y-%m-%d %H:%M:%S')}: {tipo_evento}"
+    guardar_usuarios(datos)
+
+def registrar_retorno_exitoso(nombre):
+    """Incrementa el contador de retornos de ausencia verificados exitosamente."""
+    datos = cargar_usuarios()
+    if "usuarios" not in datos or nombre not in datos["usuarios"]:
+        return
+    stats = datos["usuarios"][nombre].setdefault("estadisticas", {})
+    stats["retornos_exitosos"] = stats.get("retornos_exitosos", 0) + 1
+    guardar_usuarios(datos)
+
+def registrar_fin_sesion(nombre, duracion_segundos, similitudes_sesion=None):
+    """
+    Suma la duracion de la sesion al tiempo acumulado, consolida el promedio biometrico
+    continuo de la sesion y guarda el timestamp de cierre.
+    """
     datos = cargar_usuarios()
     if "usuarios" not in datos or nombre not in datos["usuarios"]:
         return
@@ -189,11 +226,23 @@ def registrar_fin_sesion(nombre, duracion_segundos):
             "similitud_acumulada": 0.0,
             "muestras_similitud": 0,
             "similitud_media": 0.0,
-            "intrusos_ultima_sesion": 0
+            "intrusos_bloqueo_previo": 0,
+            "intrusos_ultima_sesion": 0,
+            "usurpaciones_detectadas": 0,
+            "retornos_exitosos": 0,
+            "ultimo_incidente_seguridad": None
         }
     
     stats = usuario["estadisticas"]
     tiempo_actual = stats.get("tiempo_acumulado_segundos", 0.0)
     stats["tiempo_acumulado_segundos"] = round(tiempo_actual + max(0.0, float(duracion_segundos)), 2)
     stats["ultimo_cierre_timestamp"] = int(time.time())
+
+    # Consolidar promedio de similitud de los fotogramas evaluados durante la sesion
+    if similitudes_sesion and len(similitudes_sesion) > 0:
+        media_sesion = float(sum(similitudes_sesion) / len(similitudes_sesion))
+        stats["similitud_acumulada"] = stats.get("similitud_acumulada", 0.0) + media_sesion
+        stats["muestras_similitud"] = stats.get("muestras_similitud", 0) + 1
+        stats["similitud_media"] = round(stats["similitud_acumulada"] / stats["muestras_similitud"], 1)
+
     guardar_usuarios(datos)

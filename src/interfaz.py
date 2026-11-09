@@ -92,7 +92,7 @@ def dibujar_hud_sesion(frame, usuario, rol, stats, duracion_actual, mostrar_deta
 
     # Panel izquierdo desplegado (Estadisticas)
     if mostrar_detalles:
-        alto_panel_izq = 246
+        alto_panel_izq = 288
         cv2.rectangle(overlay, (x_izq, y_izq + alto_card + 4), (x_izq + ancho_izq + 60, y_izq + alto_card + 4 + alto_panel_izq), (20, 20, 20), -1)
         cv2.rectangle(overlay, (x_izq, y_izq + alto_card + 4), (x_izq + ancho_izq + 60, y_izq + alto_card + 4 + alto_panel_izq), (0, 255, 255), 1)
 
@@ -143,7 +143,9 @@ def dibujar_hud_sesion(frame, usuario, rol, stats, duracion_actual, mostrar_deta
         tiempo_acum = stats.get("tiempo_acumulado_segundos", 0.0) + duracion_actual
         tiempo_medio = tiempo_acum / max(1, inicios)
         ultimo_acc = stats.get("ultimo_acceso") or "Primer inicio"
-        intrusos = stats.get("intrusos_ultima_sesion", 0)
+        intrusos = stats.get("intrusos_bloqueo_previo", stats.get("intrusos_ultima_sesion", 0))
+        usurpaciones = stats.get("usurpaciones_detectadas", 0)
+        retornos = stats.get("retornos_exitosos", 0)
         sim_media = similitud_sesion if similitud_sesion is not None else stats.get("similitud_media", 0.0)
 
         items = [
@@ -151,7 +153,9 @@ def dibujar_hud_sesion(frame, usuario, rol, stats, duracion_actual, mostrar_deta
             ("Tiempo de sesion:", formatear_duracion(duracion_actual), (0, 255, 255)),
             ("Inicios de sesion:", f"{inicios} veces", (0, 255, 255)),
             ("Similitud facial media:", f"{sim_media:.1f}%", (0, 255, 0) if sim_media >= 80 else (0, 165, 255)),
-            ("Intrusos ult. sesion:", f"{intrusos} detectados" if intrusos > 0 else "0 (Ninguno)", (0, 0, 255) if intrusos > 0 else (0, 255, 0)),
+            ("Usurpaciones evitadas:", f"{usurpaciones} detectadas" if usurpaciones > 0 else "0 (Protegido)", (0, 0, 255) if usurpaciones > 0 else (0, 255, 0)),
+            ("Retornos validados:", f"{retornos} veces", (0, 255, 255)),
+            ("Intrusos en reposo:", f"{intrusos} detectados" if intrusos > 0 else "0 (Ninguno)", (0, 0, 255) if intrusos > 0 else (0, 255, 0)),
             ("Ultimo acceso:", str(ultimo_acc), (0, 255, 255)),
             ("Tiempo acumulado:", formatear_duracion(tiempo_acum), (0, 255, 255)),
             ("Promedio por sesion:", formatear_duracion(tiempo_medio), (0, 255, 255)),
@@ -368,8 +372,8 @@ def mostrar_estadisticas_usuario_modal(camara, nombre, rol, stats):
         frame = cv2.flip(frame, 1)
         h, w = frame.shape[:2]
 
-        ancho_modal = 500
-        alto_modal = 280
+        ancho_modal = 520
+        alto_modal = 350
         x1 = (w - ancho_modal) // 2
         y1 = (h - alto_modal) // 2
         x2 = x1 + ancho_modal
@@ -387,7 +391,10 @@ def mostrar_estadisticas_usuario_modal(camara, nombre, rol, stats):
         tiempo_acum = stats.get("tiempo_acumulado_segundos", 0.0)
         tiempo_medio = tiempo_acum / max(1, inicios)
         ultimo_acc = stats.get("ultimo_acceso") or "Sin registros"
-        intrusos = stats.get("intrusos_ultima_sesion", 0)
+        intrusos = stats.get("intrusos_bloqueo_previo", stats.get("intrusos_ultima_sesion", 0))
+        usurpaciones = stats.get("usurpaciones_detectadas", 0)
+        retornos = stats.get("retornos_exitosos", 0)
+        ultimo_incidente = stats.get("ultimo_incidente_seguridad") or "Ninguno registrado"
         sim_media = stats.get("similitud_media", 0.0)
 
         items = [
@@ -396,8 +403,11 @@ def mostrar_estadisticas_usuario_modal(camara, nombre, rol, stats):
             ("Tiempo acumulado total:", formatear_duracion(tiempo_acum), (0, 255, 255)),
             ("Promedio por sesion:", formatear_duracion(tiempo_medio), (0, 255, 255)),
             ("Similitud facial media:", f"{sim_media:.1f}%", (0, 255, 0) if sim_media >= 80 else (0, 165, 255)),
-            ("Intrusos ult. sesion:", f"{intrusos} detectados" if intrusos > 0 else "0 (Ninguno)", (0, 0, 255) if intrusos > 0 else (0, 255, 0)),
+            ("Usurpaciones bloqueadas:", f"{usurpaciones} incidentes", (0, 0, 255) if usurpaciones > 0 else (0, 255, 0)),
+            ("Retornos validados:", f"{retornos} exitosos", (0, 255, 255)),
+            ("Intrusos en reposo:", f"{intrusos} detectados" if intrusos > 0 else "0 (Ninguno)", (0, 0, 255) if intrusos > 0 else (0, 255, 0)),
             ("Ultima conexion:", str(ultimo_acc), (0, 255, 255)),
+            ("Ultimo incidente:", str(ultimo_incidente), (0, 0, 255) if ultimo_incidente != "Ninguno registrado" else (0, 255, 0)),
         ]
 
         y_offset = y1 + 75

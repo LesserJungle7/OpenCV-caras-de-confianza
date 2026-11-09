@@ -50,7 +50,9 @@ from usuarios import (
     registrar_fin_sesion,
     cambiar_password_usuario,
     listar_usuarios,
-    eliminar_usuario
+    eliminar_usuario,
+    registrar_evento_seguridad,
+    registrar_retorno_exitoso
 )
 from gestos import EvaluadorGestos
 from depurador import (
@@ -501,7 +503,7 @@ def ejecutar_guardia(camara=None, clasificador=None):
                     if tiempo_ausente >= TIEMPO_AUSENCIA_GUARDIA:
                         print(f"\n[BLOQUEO] Usuario '{usuario_autenticado}' ausente durante {int(tiempo_ausente)} segundos. Reactivando guardia...")
                         if usuario_autenticado in datos_sistema.get("usuarios", {}):
-                            registrar_fin_sesion(usuario_autenticado, duracion_actual)
+                            registrar_fin_sesion(usuario_autenticado, duracion_actual, historial_similitud_sesion)
                         resetear_estado_sesion()
                 else:
                     caja_actual = caras[0]
@@ -557,6 +559,9 @@ def ejecutar_guardia(camara=None, clasificador=None):
                                         msg_ret = f"[DEBUG] Retorno verificado: {usuario_autenticado.upper()} ({sim_ret:.1f}%). Pulsa [S] para reanudar sesion"
                                         pausar_inspeccion_debug(frame_mostrar, msg_ret, tecla_continuar='s')
 
+                                    registrar_retorno_exitoso(usuario_autenticado)
+                                    stats_usuario["retornos_exitosos"] = stats_usuario.get("retornos_exitosos", 0) + 1
+
                                     verificando_retorno = False
                                     cerrar_debug_fase("retorno_ausencia")
                                     cambiar_fase("sesion_activa")
@@ -578,7 +583,8 @@ def ejecutar_guardia(camara=None, clasificador=None):
                                     print(f"\n[ALERTA INTRUSO] Intento de usurpacion en la sesion de '{usuario_autenticado}'. Score: {score_medio:.4f}")
                                     guardar_evidencia_intruso(camara, frame)
                                     if usuario_autenticado in datos_sistema.get("usuarios", {}):
-                                        registrar_fin_sesion(usuario_autenticado, duracion_actual)
+                                        registrar_evento_seguridad(usuario_autenticado, "usurpacion_retorno")
+                                        registrar_fin_sesion(usuario_autenticado, duracion_actual, historial_similitud_sesion)
                                     suspender_equipo()
                                     time.sleep(5)
                                     resetear_estado_sesion()
@@ -629,7 +635,7 @@ def ejecutar_guardia(camara=None, clasificador=None):
                     if usuario_autenticado and tiempo_inicio_sesion:
                         duracion_actual = time.time() - tiempo_inicio_sesion
                         if usuario_autenticado in datos_sistema.get("usuarios", {}):
-                            registrar_fin_sesion(usuario_autenticado, duracion_actual)
+                            registrar_fin_sesion(usuario_autenticado, duracion_actual, historial_similitud_sesion)
                     resetear_estado_sesion()
                     print("Cerrando sesion y regresando al menu principal...")
                     break
@@ -662,7 +668,11 @@ def ejecutar_guardia(camara=None, clasificador=None):
                             "ultimo_acceso": time.strftime("%Y-%m-%d %H:%M:%S"),
                             "tiempo_acumulado_segundos": 0.0,
                             "similitud_media": 100.0,
-                            "intrusos_ultima_sesion": 0
+                            "intrusos_bloqueo_previo": 0,
+                            "intrusos_ultima_sesion": 0,
+                            "usurpaciones_detectadas": 0,
+                            "retornos_exitosos": 0,
+                            "ultimo_incidente_seguridad": None
                         }
                         historial_similitud_sesion = [100.0]
                         contador_frames_sesion = 0
@@ -868,7 +878,7 @@ def ejecutar_guardia(camara=None, clasificador=None):
             if tiempo_inicio_sesion:
                 duracion_actual = time.time() - tiempo_inicio_sesion
                 if usuario_autenticado in datos_sistema.get("usuarios", {}):
-                    registrar_fin_sesion(usuario_autenticado, duracion_actual)
+                    registrar_fin_sesion(usuario_autenticado, duracion_actual, historial_similitud_sesion)
             limpiar_sesion_invitado(usuario_autenticado)
         print("\n[INFO] Autenticador detenido por el usuario.")
     finally:
