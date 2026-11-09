@@ -34,6 +34,12 @@ from config import (
 )
 from sistema import reproducir_audio
 from vision import detectar_posicion_ojos
+from depurador import (
+    es_debug_activo,
+    mostrar_debug_gestos_boca,
+    mostrar_debug_gestos_ojos,
+    mostrar_debug_gestos_cejas
+)
 
 _clasificador_ojos = None
 
@@ -200,9 +206,14 @@ def dibujar_hud(frame_mostrar, paso_actual, total_pasos, nombre_gesto, tiempo_re
     cv2.putText(frame_mostrar, f">> {descripcion.upper()}", (20, 60), FUENTE, 0.7, (255, 255, 255), 2)
 
     # Temporizador
-    color_timer = (0, 255, 0) if tiempo_restante > 2.5 else (0, 0, 255)
-    texto_timer = f"{tiempo_restante:.1f}s"
-    cv2.putText(frame_mostrar, texto_timer, (ancho_f - 110, 45), FUENTE, 0.8, color_timer, 2)
+    if es_debug_activo():
+        color_timer = (0, 255, 255)
+        texto_timer = "ILIMITADO [DEBUG]"
+        cv2.putText(frame_mostrar, texto_timer, (ancho_f - 240, 45), FUENTE, 0.65, color_timer, 2)
+    else:
+        color_timer = (0, 255, 0) if tiempo_restante > 2.5 else (0, 0, 255)
+        texto_timer = f"{tiempo_restante:.1f}s"
+        cv2.putText(frame_mostrar, texto_timer, (ancho_f - 110, 45), FUENTE, 0.8, color_timer, 2)
 
     # Barra de confirmacion
     ancho_barra = ancho_f - 40
@@ -427,6 +438,20 @@ class EvaluadorGestos:
             self.neutro_aspect_od
         )
 
+        if es_debug_activo():
+            mostrar_debug_gestos_ojos(
+                rois["ojo_izq"]["img"],
+                rois["ojo_der"]["img"],
+                aspect_oi,
+                aspect_od,
+                FACTOR_K_CIERRE_OJO * self.neutro_aspect_oi,
+                FACTOR_K_CIERRE_OJO * self.neutro_aspect_od,
+                list(self.ventana_ojo_izq),
+                list(self.ventana_ojo_der),
+                izq_cerrado,
+                der_cerrado
+            )
+
         return izq_cerrado, der_cerrado, aspect_oi, aspect_od
 
     def _detectar_dientes_adaptativo(self, img_boca, brillo_ref):
@@ -488,6 +513,8 @@ class EvaluadorGestos:
             if bw >= ANCHO_MINIMO_FRANJA_DIENTES and bh >= 3 and aspect >= ASPECTO_MINIMO_FRANJA_DIENTES:
                 tiene_franja = True
 
+        self.ultima_boca_norm = boca_norm
+        self.ultima_mascara_dientes = mascara_limpia
         return tiene_franja, pct_dientes
 
     def _evaluar_sonrisa(self, rois):
@@ -504,6 +531,17 @@ class EvaluadorGestos:
         # Exige superar el porcentaje minimo normalizado y sobrepasar la linea base de labios en reposo
         umbral_dinamico = max(PORCENTAJE_MINIMO_DIENTES, min(0.10, self.neutro_dientes_pct + 0.035))
         es_sonrisa = bool(pct_dientes >= umbral_dinamico and tiene_franja)
+
+        if es_debug_activo():
+            mostrar_debug_gestos_boca(
+                getattr(self, "ultima_boca_norm", img_boca),
+                getattr(self, "ultima_mascara_dientes", np.zeros((60, 100), dtype=np.uint8)),
+                pct_dientes,
+                umbral_dinamico,
+                tiene_franja,
+                es_sonrisa
+            )
+
         return es_sonrisa, float(pct_dientes)
 
     def evaluar_gesto_activo(self, gesto, rois):
@@ -520,6 +558,14 @@ class EvaluadorGestos:
         if dist_norm_cejas is not None and self.neutro_dist_norm_cejas > 0:
             if dist_norm_cejas > (self.neutro_dist_norm_cejas * 1.16):
                 regiones["cejas"] = True
+
+        if es_debug_activo():
+            mostrar_debug_gestos_cejas(
+                rois["cejas"]["img"],
+                dist_norm_cejas if dist_norm_cejas is not None else 0.0,
+                self.neutro_dist_norm_cejas,
+                regiones["cejas"]
+            )
 
         # 2. Evaluacion de ojos
         izq_c, der_c, _, _ = self._evaluar_ojos(rois)
@@ -616,7 +662,7 @@ class EvaluadorGestos:
         tiempo_transcurrido = time.time() - self.tiempo_inicio_gesto
         tiempo_restante = max(0.0, TIEMPO_MAXIMO_GESTO - tiempo_transcurrido)
 
-        if tiempo_restante <= 0.0:
+        if tiempo_restante <= 0.0 and not es_debug_activo():
             return "TIMEOUT", frame_anotado
 
         # 3. Evaluacion del gesto en curso
