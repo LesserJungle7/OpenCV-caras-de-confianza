@@ -37,7 +37,8 @@ from vision import (
     normalizar_cara,
     verificar_rostro_estatico,
     verificar_usuario_especifico,
-    obtener_plantillas_usuario
+    obtener_plantillas_usuario,
+    reiniciar_substractor_knn
 )
 from sistema import suspender_equipo, guardar_evidencia_intruso, reproducir_audio
 from usuarios import (
@@ -308,6 +309,7 @@ def ejecutar_guardia(camara=None, clasificador=None):
         cambiar_fase("guardia_login")
 
     cambiar_fase("guardia_login")
+    reiniciar_substractor_knn()
     try:
         while True:
             ret, frame = camara.read()
@@ -338,6 +340,7 @@ def ejecutar_guardia(camara=None, clasificador=None):
                 if len(caras) == 0:
                     frames_estables = 0
                     ultima_caja = None
+                    reiniciar_substractor_knn()
                     cv2.putText(frame_mostrar, "MODO GUARDIA: VIGILANDO", (20, 36), FUENTE, 0.7, (0, 255, 0), GROSOR)
                     cv2.putText(frame_mostrar, "[Q] Volver al menu  |  [I] Acceso Invitado", (20, 68), FUENTE, 0.46, (200, 200, 200), 1)
                 else:
@@ -510,6 +513,7 @@ def ejecutar_guardia(camara=None, clasificador=None):
                         frames_estables_retorno = 0
                         ultima_caja_retorno = None
                         buffer_scores_retorno = []
+                        reiniciar_substractor_knn()
 
                     tiempo_inicio_ausencia = None
                     tiempo_ausente = 0.0

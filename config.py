@@ -28,10 +28,14 @@ TIEMPO_AUSENCIA_GUARDIA = 10  # Tiempo en segundos sin detectar usuario antes de
 AREA_MINIMA_CARA = 8000       # Area minima (ancho * alto) para descartar detecciones falsas
 BRILLO_OBJETIVO = 120         # Nivel medio de iluminacion deseado calculado con histograma
 
-# Parametros de estabilidad y fijacion de rostro en guardia
+# Parametros de estabilidad y fijacion de rostro en guardia (Sustraccion de Fondo KNN)
 FRAMES_ESTABILIDAD_GUARDIA = 12     # Fotogramas consecutivos con rostro quieto requeridos
 UMBRAL_MOVIMIENTO_ESTABLE = 14      # Desplazamiento maximo en pixeles del centroide entre frames
-VARIANZA_MINIMA_TEXTURA = 65.0      # Varianza minima del Laplaciano para descartar oclusiones lisas
+KNN_HISTORIAL = 15                  # Ventana temporal de aprendizaje para deteccion de movimiento KNN
+KNN_UMBRAL_DISTANCIA = 400.0        # Umbral de distancia Mahalanobis/KNN
+KNN_DETECTAR_SOMBRAS = False        # Mascara binaria directa sin sombras intermedias
+UMBRAL_MOVIMIENTO_KNN = 600.0       # Area maxima de contorno de movimiento permitida en ROI para considerarlo quieto
+VARIANZA_MINIMA_TEXTURA = 65.0      # (Obsoleto) Varianza minima del Laplaciano mantenida por compatibilidad
 
 # Parametros de re-validacion de retorno en sesion activa (anti-usurpacion)
 TIEMPO_DISPARO_REENGANCHE = 1.0     # Segundos de ausencia minima para exigir re-verificacion al volver

@@ -13,7 +13,10 @@ from config import (
     ALINEAR_OJOS,
     ANGULO_MAXIMO_ALINEACION,
     UMBRAL_MOVIMIENTO_ESTABLE,
-    VARIANZA_MINIMA_TEXTURA,
+    KNN_HISTORIAL,
+    KNN_UMBRAL_DISTANCIA,
+    KNN_DETECTAR_SOMBRAS,
+    UMBRAL_MOVIMIENTO_KNN,
     UMBRAL_REENGANCHE_SESION
 )
 from depurador import (
@@ -27,6 +30,23 @@ from depurador import (
 _CLAHE = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4, 4))
 _clasificador_rostros = None
 _clasificador_ojos = None
+_substractor_knn = None
+
+def obtener_substractor_knn(reiniciar=False):
+    """Devuelve la instancia singleton del sustractor de fondo KNN o la reinicia."""
+    global _substractor_knn
+    if _substractor_knn is None or reiniciar:
+        _substractor_knn = cv2.createBackgroundSubtractorKNN(
+            history=KNN_HISTORIAL,
+            dist2Threshold=KNN_UMBRAL_DISTANCIA,
+            detectShadows=KNN_DETECTAR_SOMBRAS
+        )
+    return _substractor_knn
+
+def reiniciar_substractor_knn():
+    """Reinicia el modelo de sustraccion de fondo KNN."""
+    global _substractor_knn
+    _substractor_knn = None
 if os.path.exists(RUTA_CASCADE_EYE):
     try:
         _clasificador_ojos = cv2.CascadeClassifier(RUTA_CASCADE_EYE)
@@ -117,30 +137,30 @@ def calcular_angulo_ojos(cara_gris, clasificador_ojos=None):
 
 def ajustar_brillo_histograma(frame, brillo_objetivo=BRILLO_OBJETIVO):
     """
-    Paso 1: Usamos el histograma (Semana 3) para calcular el nivel medio de luz,
-    y si la imagen está oscura, aumentamos el brillo en el canal V de HSV (Semana 5).
+    Calcula el nivel medio de iluminacion mediante histograma en escala de grises
+    y aplica compensacion de brillo sobre el canal V del espacio HSV.
     """
     if len(frame.shape) == 3:
         frame_gris = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     else:
         frame_gris = frame
 
-    # Calculamos el histograma en escala de grises
+    # Calculo del histograma en escala de grises
     hist = cv2.calcHist([frame_gris], [0], None, [256], [0, 256])
     total_pixeles = np.sum(hist)
     if total_pixeles == 0:
         return frame
 
-    # Sacamos el brillo medio multiplicando cada nivel de luz por su frecuencia en el histograma
+    # Estimacion de brillo medio ponderado por frecuencias
     brillo_medio = int(np.sum(np.arange(256) * hist.flatten()) / total_pixeles)
 
-    # Si la escena está poco iluminada, le subimos el brillo
+    # Incremento de luminancia si la iluminacion media esta bajo el objetivo
     if brillo_medio < brillo_objetivo and len(frame.shape) == 3:
         incremento = brillo_objetivo - brillo_medio
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         h, s, v = cv2.split(hsv)
 
-        # Evitamos pasar de 255 sumando el incremento con tope
+        # Limite superior a 255 para prevenir desbordamiento de rango
         limite = 255 - incremento
         v[v > limite] = 255
         v[v <= limite] += incremento
@@ -158,7 +178,7 @@ def detectar_caras(frame, clasificador=None, scale_factor=1.15, min_neighbors=5,
     if clasificador is None:
         clasificador = obtener_clasificador()
 
-    # Paso 1: Ajustamos el brillo antes de la detección para que el clasificador funcione mejor
+    # Normalizacion previa de iluminacion para optimizar la deteccion facial
     frame_ajustado = ajustar_brillo_histograma(frame)
 
     if len(frame_ajustado.shape) == 3:
@@ -168,7 +188,7 @@ def detectar_caras(frame, clasificador=None, scale_factor=1.15, min_neighbors=5,
 
     caras = clasificador.detectMultiScale(frame_byn, scaleFactor=scale_factor, minNeighbors=min_neighbors)
 
-    # Paso 3: Filtramos las detecciones por area mínima para descartar sombras o falsos positivos pequeños.
+    # Descarte de detecciones por debajo del umbral de area minima
     caras_filtradas = []
     for (x, y, ancho, alto) in caras:
         if (ancho * alto) >= area_min:
@@ -178,8 +198,8 @@ def detectar_caras(frame, clasificador=None, scale_factor=1.15, min_neighbors=5,
 
 def verificar_rostro_estatico(caja_actual, caja_previa, frame_gris, frames_estables=0):
     """
-    Determina si un rostro detectado se mantiene quieto, frontal y sin oclusiones.
-    Evalua relacion de aspecto, desplazamiento entre fotogramas y nitidez/textura minima.
+    Determina si un rostro detectado se mantiene quieto y frontal mediante Sustraccion de Fondo (KNN).
+    Evalua relacion de aspecto, desplazamiento entre fotogramas y ausencia de movimiento en la ROI.
     """
     x, y, w, h = caja_actual
     if w <= 0 or h <= 0:
@@ -207,20 +227,41 @@ def verificar_rostro_estatico(caja_actual, caja_previa, frame_gris, frames_estab
 
     desplazamiento_ok = (caja_previa is None or dist_desplazamiento <= UMBRAL_MOVIMIENTO_ESTABLE)
 
-    # 3. Varianza de textura: descarta regiones homogeneas o manos tapando la lente
+    # 3. Deteccion de quietud mediante Sustraccion de Fondo KNN
+    substractor = obtener_substractor_knn()
+    mascara_1er_plano = substractor.apply(frame_gris)
+
     y1, y2 = max(0, y), min(frame_gris.shape[0], y + h)
     x1, x2 = max(0, x), min(frame_gris.shape[1], x + w)
-    roi = frame_gris[y1:y2, x1:x2]
-    if roi.size == 0:
+    roi_cara = frame_gris[y1:y2, x1:x2]
+    roi_mascara = mascara_1er_plano[y1:y2, x1:x2]
+
+    if roi_cara.size == 0 or roi_mascara.size == 0:
         return False
 
-    varianza_laplaciana = float(cv2.Laplacian(roi, cv2.CV_64F).var())
-    nitidez_ok = (varianza_laplaciana >= VARIANZA_MINIMA_TEXTURA)
+    # Extraccion del contorno de movimiento maximo en la ROI del rostro
+    contornos, _ = cv2.findContours(roi_mascara, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
+    area_movimiento = 0.0
+    contorno_max = None
+    if len(contornos) > 0:
+        contorno_max = max(contornos, key=cv2.contourArea)
+        area_movimiento = abs(cv2.contourArea(contorno_max, True))
 
-    es_estable = bool(proporcion_ok and desplazamiento_ok and variacion_tam_ok and nitidez_ok)
+    quietud_knn_ok = (area_movimiento <= UMBRAL_MOVIMIENTO_KNN)
+
+    es_estable = bool(proporcion_ok and desplazamiento_ok and variacion_tam_ok and quietud_knn_ok)
 
     if es_debug_activo():
-        mostrar_debug_estabilidad(roi, varianza_laplaciana, dist_desplazamiento, aspect_ratio, es_estable, frames_estables)
+        mostrar_debug_estabilidad(
+            roi_cara,
+            roi_mascara,
+            area_movimiento,
+            dist_desplazamiento,
+            aspect_ratio,
+            es_estable,
+            frames_estables,
+            contorno_max=contorno_max
+        )
 
     return es_estable
 

@@ -18,7 +18,9 @@ from config import (
     VENTANA_DEBUG_CEJAS,
     VENTANAS_DEBUG,
     TAM_CARA,
-    UMBRAL_COINCIDENCIA
+    UMBRAL_COINCIDENCIA,
+    UMBRAL_MOVIMIENTO_ESTABLE,
+    UMBRAL_MOVIMIENTO_KNN
 )
 
 # Estado global del modo depurador y control de ciclo de vida por fases
@@ -243,44 +245,55 @@ def mostrar_debug_normalizacion(etapas):
     _ventanas_abiertas.add(VENTANA_DEBUG_NORMALIZACION)
 
 # -------------------------------------------------------------------------
-# CASO 2: ESTABILIZACION Y NITIDEZ FACIAL
+# CASO 2: ESTABILIZACION Y QUIETUD FACIAL (SUSTRACTOR KNN)
 # -------------------------------------------------------------------------
-def mostrar_debug_estabilidad(roi_gris, varianza, desplazamiento, aspect, es_estable, frames_estables=0, umbral_frames=12):
+def mostrar_debug_estabilidad(roi_gris, roi_mascara_knn, area_movimiento, desplazamiento, aspect, es_estable, frames_estables=0, umbral_frames=12, contorno_max=None):
     """
-    Muestra la inspeccion de nitidez (Laplaciano) y estabilidad posicional.
+    Muestra la inspeccion de quietud (Sustraccion de Fondo KNN) y estabilidad posicional.
+    Visualiza el rostro capturado, la mascara de primer plano con el contorno de movimiento
+    y el panel de telemetria con histeresis de estabilizacion.
     """
     if not _es_ventana_permitida(VENTANA_DEBUG_ESTABILIDAD) or roi_gris is None or roi_gris.size == 0:
         return
 
     tam = (180, 180)
     roi_bgr = _asegurar_bgr(cv2.resize(roi_gris, tam))
-    
-    # Mapa de bordes Laplaciano para inspeccionar textura y desenfoque
-    lap = cv2.Laplacian(roi_gris, cv2.CV_64F)
-    lap_vis = cv2.convertScaleAbs(lap)
-    lap_bgr = cv2.applyColorMap(cv2.resize(lap_vis, tam), cv2.COLORMAP_JET)
+
+    # Mascara de primer plano KNN con contorno de movimiento resaltado
+    if roi_mascara_knn is not None and roi_mascara_knn.size > 0:
+        mascara_redim = cv2.resize(roi_mascara_knn, tam, interpolation=cv2.INTER_NEAREST)
+        mascara_bgr = cv2.cvtColor(mascara_redim, cv2.COLOR_GRAY2BGR)
+        if contorno_max is not None and len(contorno_max) > 0:
+            h_orig, w_orig = roi_mascara_knn.shape[:2]
+            if w_orig > 0 and h_orig > 0:
+                sx = tam[0] / float(w_orig)
+                sy = tam[1] / float(h_orig)
+                contorno_escalado = (contorno_max * np.array([sx, sy])).astype(np.int32)
+                cv2.drawContours(mascara_bgr, [contorno_escalado], 0, (0, 255, 255), 2)
+    else:
+        mascara_bgr = np.zeros((tam[1], tam[0], 3), dtype=np.uint8)
 
     # Panel lateral de telemetria
     panel_info = np.zeros((tam[1], 260, 3), dtype=np.uint8)
     cv2.rectangle(panel_info, (0, 0), (259, tam[1] - 1), (30, 30, 35), -1)
 
-    col_var = (0, 255, 0) if varianza >= 65.0 else (0, 0, 255)
-    col_desp = (0, 255, 0) if desplazamiento <= 14.0 else (0, 0, 255)
+    col_knn = (0, 255, 0) if area_movimiento <= UMBRAL_MOVIMIENTO_KNN else (0, 0, 255)
+    col_desp = (0, 255, 0) if desplazamiento <= UMBRAL_MOVIMIENTO_ESTABLE else (0, 0, 255)
     col_asp = (0, 255, 0) if (0.70 <= aspect <= 1.30) else (0, 0, 255)
     col_est = (0, 255, 0) if es_estable else (0, 165, 255)
 
-    cv2.putText(panel_info, "TELEMETRIA ESTABILIDAD", (10, 22), cv2.FONT_HERSHEY_DUPLEX, 0.44, (0, 255, 255), 1)
-    cv2.putText(panel_info, f"Nitidez (Lap): {varianza:.1f} (min 65.0)", (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.38, col_var, 1)
-    cv2.putText(panel_info, f"Movimiento: {desplazamiento:.1f}px (max 14)", (10, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.38, col_desp, 1)
+    cv2.putText(panel_info, "TELEMETRIA ESTABILIDAD (KNN)", (10, 22), cv2.FONT_HERSHEY_DUPLEX, 0.40, (0, 255, 255), 1)
+    cv2.putText(panel_info, f"Mov. KNN: {area_movimiento:.0f}px (max {int(UMBRAL_MOVIMIENTO_KNN)})", (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.38, col_knn, 1)
+    cv2.putText(panel_info, f"Desplazamiento: {desplazamiento:.1f}px (max {int(UMBRAL_MOVIMIENTO_ESTABLE)})", (10, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.38, col_desp, 1)
     cv2.putText(panel_info, f"Aspecto w/h: {aspect:.2f} [0.7-1.3]", (10, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.38, col_asp, 1)
     cv2.putText(panel_info, f"Frames OK: {frames_estables}/{umbral_frames}", (10, 128), cv2.FONT_HERSHEY_SIMPLEX, 0.40, (255, 255, 255), 1)
-    
-    estado_txt = "ESTABLE (+1)" if es_estable else "MOVIMIENTO / BORROSO (-2)"
+
+    estado_txt = "ESTABLE (+1)" if es_estable else "MOVIMIENTO KNN (-2)"
     cv2.putText(panel_info, f"Estado: {estado_txt}", (10, 158), cv2.FONT_HERSHEY_DUPLEX, 0.40, col_est, 1)
 
     mosaico = np.hstack([
-        _crear_tile(roi_bgr, "Rostro Capturado", "ROI gris", tam=tam),
-        _crear_tile(lap_bgr, "Mapa Laplaciano", "Textura y bordes", tam=tam),
+        _crear_tile(roi_bgr, "Rostro Capturado", "ROI facial", tam=tam),
+        _crear_tile(mascara_bgr, "Mascara KNN", "Primer plano / Contorno", tam=tam),
         _crear_tile(panel_info, "Evaluacion Metricas", "Histeresis dinamica", tam=(260, tam[1]))
     ])
 

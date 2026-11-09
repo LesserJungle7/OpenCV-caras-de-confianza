@@ -57,17 +57,16 @@ OpenCV-caras-de-confianza/
 │       ├── confianza/          # Plantillas de rostros autorizados ({usuario}_{pose}.jpg)
 │       └── intrusos/           # Fotografías de evidencia de accesos no autorizados
 │
-├── src/                        # Código fuente modularizado del sistema
-│   ├── __init__.py             # Inicializador de paquete y configuración de sys.path
-│   ├── autenticador.py         # Módulo de guardia continua, autenticación y sesión
-│   ├── creador_perfiles.py     # Asistente interactivo de registro facial y usuarios
-│   ├── gestos.py               # Evaluador de retos faciales y prueba de vida
-│   ├── interfaz.py             # Renderizado del HUD, paneles traslúcidos y modales
-│   ├── sistema.py              # Bloqueo del SO, evidencias y reproducción de audio
-│   ├── usuarios.py             # Gestión de credenciales, roles, estadísticas y borrado
-│   └── vision.py               # Detección facial, alineación de ojos y normalización
-│
-└── Semana2/ ... Semana6/       # Hitos y entregas académicas del proyecto
+└── src/                        # Código fuente modularizado del sistema
+    ├── __init__.py             # Inicializador de paquete y configuración de sys.path
+    ├── autenticador.py         # Módulo de guardia continua, autenticación y sesión
+    ├── creador_perfiles.py     # Asistente interactivo de registro facial y usuarios
+    ├── depurador.py            # Modulo de depuracion visual, telemetria y pausas
+    ├── gestos.py               # Evaluador de retos faciales y prueba de vida
+    ├── interfaz.py             # Renderizado del HUD, paneles traslúcidos y modales
+    ├── sistema.py              # Bloqueo del SO, evidencias y reproducción de audio
+    ├── usuarios.py             # Gestión de credenciales, roles, estadísticas y borrado
+    └── vision.py               # Detección facial, alineación de ojos y normalización
 ```
 
 ### Descripción de ficheros clave
