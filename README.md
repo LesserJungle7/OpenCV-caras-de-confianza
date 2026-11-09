@@ -1,4 +1,4 @@
-# OpenCV Trusted Faces
+# OpenCV - Caras de confianza
 
 Sistema inteligente de control de acceso y vigilancia biométrica continua basado en visión artificial con **OpenCV** y **Python**. El proyecto implementa reconocimiento facial con normalización y alineación de ojos, retos dinámicos de prueba de vida (liveness detection mediante gestos faciales), control de acceso basado en roles (**Total**, **Operador** e **Invitado**), estadísticas en tiempo real y defensa proactiva contra intrusos y usurpaciones de sesión.
 
