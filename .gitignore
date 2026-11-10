@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.bak
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Operating System files
+.DS_Store
+Thumbs.db
+
+# Runtime data and generated images
+datos/
+imagenes/
+
+Semana2/
+Semana3/
+Semana4/
+Semana5/
+Semana6/
