@@ -1,8 +1,6 @@
 import time
-import numpy as np
 import cv2
 
-from config import FUENTE, GROSOR, COLOR_TEXTO, COLOR_RECUADRO
 from depurador import es_debug_activo
 
 def formatear_duracion(segundos):
@@ -14,13 +12,6 @@ def formatear_duracion(segundos):
     if horas > 0:
         return f"{horas:02d}h {minutos:02d}m {segs:02d}s"
     return f"{minutos:02d}m {segs:02d}s"
-
-def dibujar_tarjeta_hud(frame, x, y, ancho, alto, color_borde=(0, 255, 255), color_fondo=(20, 20, 20), opacidad=0.82):
-    """Renderiza una tarjeta rectangular traslucida con borde."""
-    overlay = frame.copy()
-    cv2.rectangle(overlay, (x, y), (x + ancho, y + alto), color_fondo, -1)
-    cv2.rectangle(overlay, (x, y), (x + ancho, y + alto), color_borde, 1)
-    cv2.addWeighted(overlay, opacidad, frame, 1.0 - opacidad, 0, frame)
 
 def dibujar_barra_progreso(frame, x, y, ancho, alto, porcentaje, color_barra):
     """Dibuja una barra horizontal de progreso con fondo oscuro y borde."""
@@ -256,11 +247,11 @@ def capturar_texto_pantalla(camara, titulo, prompt, es_password=False, max_carac
         cv2.imshow("Autenticador Facial", frame)
         tecla = cv2.waitKey(20) & 0xFF
 
-        if tecla == 27:  # ESC vuelve a la pantalla previa
+        if tecla == 27:
             return None
-        elif tecla == 13 or tecla == 10:  # ENTER
+        elif tecla in (10, 13):
             return texto.strip()
-        elif tecla == 8:  # Backspace
+        elif tecla == 8:
             texto = texto[:-1]
             mensaje_error = ""
         elif 32 <= tecla <= 126:
@@ -268,7 +259,7 @@ def capturar_texto_pantalla(camara, titulo, prompt, es_password=False, max_carac
                 texto += chr(tecla)
                 mensaje_error = ""
 
-def seleccionar_opcion_pantalla(camara, titulo, opciones, subtitulo="Selecciona una opcion con el teclado"):
+def seleccionar_opcion_pantalla(camara, titulo, opciones):
     """
     Presenta un menu de opciones enumeradas en pantalla.
     Retorna la clave seleccionada o None si cancela o pulsa Q / ESC.

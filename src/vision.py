@@ -47,16 +47,18 @@ def reiniciar_substractor_knn():
     """Reinicia el modelo de sustraccion de fondo KNN."""
     global _substractor_knn
     _substractor_knn = None
-if os.path.exists(RUTA_CASCADE_EYE):
-    try:
-        _clasificador_ojos = cv2.CascadeClassifier(RUTA_CASCADE_EYE)
-        if _clasificador_ojos.empty():
-            _clasificador_ojos = None
-    except Exception:
-        _clasificador_ojos = None
 
-if ALINEAR_OJOS and _clasificador_ojos is None:
-    print(f"[AVISO] ALINEAR_OJOS está activo pero no se pudo cargar el clasificador de ojos desde '{RUTA_CASCADE_EYE}'. La alineación queda desactivada.")
+def obtener_clasificador_ojos():
+    """Devuelve la instancia cacheada del clasificador Haar Cascade de ojos."""
+    global _clasificador_ojos
+    if _clasificador_ojos is None and os.path.exists(RUTA_CASCADE_EYE):
+        try:
+            clasificador = cv2.CascadeClassifier(RUTA_CASCADE_EYE)
+            if not clasificador.empty():
+                _clasificador_ojos = clasificador
+        except Exception:
+            _clasificador_ojos = None
+    return _clasificador_ojos
 
 def obtener_clasificador():
     """Devuelve la instancia cacheada del clasificador Haar Cascade de rostros."""
@@ -71,7 +73,7 @@ def detectar_posicion_ojos(cara_gris, clasificador_ojos=None):
     Retorna ((cx_izq, cy_izq), (cx_der, cy_der)) si se detecta exactamente un ojo
     en cada hemisferio con separacion horizontal valida, o None en caso contrario.
     """
-    clasificador = clasificador_ojos or _clasificador_ojos
+    clasificador = clasificador_ojos or obtener_clasificador_ojos()
     if clasificador is None or cara_gris is None or cara_gris.size == 0:
         return None
 
@@ -205,11 +207,11 @@ def verificar_rostro_estatico(caja_actual, caja_previa, frame_gris, frames_estab
     if w <= 0 or h <= 0:
         return False
 
-    # 1. Proporcion frontal: un rostro humano frontal tiene relacion w/h entre 0.70 y 1.30
+    # Proporcion frontal
     aspect_ratio = float(w) / float(h)
     proporcion_ok = (0.70 <= aspect_ratio <= 1.30)
 
-    # 2. Desplazamiento respecto al fotograma previo
+    # Desplazamiento respecto al fotograma previo
     dist_desplazamiento = 0.0
     variacion_tam_ok = True
     if caja_previa is not None:
@@ -227,7 +229,7 @@ def verificar_rostro_estatico(caja_actual, caja_previa, frame_gris, frames_estab
 
     desplazamiento_ok = (caja_previa is None or dist_desplazamiento <= UMBRAL_MOVIMIENTO_ESTABLE)
 
-    # 3. Deteccion de quietud mediante Sustraccion de Fondo KNN
+    # Deteccion de quietud mediante sustraccion de fondo KNN
     substractor = obtener_substractor_knn()
     mascara_1er_plano = substractor.apply(frame_gris)
 
@@ -271,7 +273,7 @@ def alinear_ojos(cara):
     Aplica rotacion afin preservando bordes mediante BORDER_REPLICATE.
     """
     cara_gris = cv2.cvtColor(cara, cv2.COLOR_BGR2GRAY) if len(cara.shape) == 3 else cara
-    angulo = calcular_angulo_ojos(cara_gris, _clasificador_ojos)
+    angulo = calcular_angulo_ojos(cara_gris, obtener_clasificador_ojos())
     if angulo is None:
         return cara
 
@@ -314,8 +316,9 @@ def normalizar_cara(gris, caja=None):
 
     # Alineacion previa al recorte de margen
     angulo_alineacion = None
-    if ALINEAR_OJOS and _clasificador_ojos is not None:
-        angulo_alineacion = calcular_angulo_ojos(cara, _clasificador_ojos)
+    clasif_ojos = obtener_clasificador_ojos()
+    if ALINEAR_OJOS and clasif_ojos is not None:
+        angulo_alineacion = calcular_angulo_ojos(cara, clasif_ojos)
         cara = alinear_ojos(cara)
 
     if debug_activo:

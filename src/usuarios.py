@@ -88,16 +88,29 @@ def eliminar_usuario(nombre):
 
     return eliminado
 
+def _estadisticas_por_defecto():
+    """Genera la estructura de estadisticas base para un usuario."""
+    return {
+        "inicios_sesion": 0,
+        "ultimo_acceso": None,
+        "ultimo_cierre_timestamp": None,
+        "tiempo_acumulado_segundos": 0.0,
+        "similitud_acumulada": 0.0,
+        "muestras_similitud": 0,
+        "similitud_media": 0.0,
+        "intrusos_bloqueo_previo": 0,
+        "intrusos_ultima_sesion": 0,
+        "usurpaciones_detectadas": 0,
+        "retornos_exitosos": 0,
+        "ultimo_incidente_seguridad": None
+    }
+
 def registrar_usuario(nombre, password, rol):
     """Agrega o actualiza un usuario en la configuracion preservando estadisticas existentes."""
     datos = cargar_usuarios()
     if "usuarios" not in datos:
         datos["usuarios"] = {}
-    estadisticas_previas = datos["usuarios"].get(nombre, {}).get("estadisticas", {
-        "inicios_sesion": 0,
-        "ultimo_acceso": None,
-        "tiempo_acumulado_segundos": 0.0
-    })
+    estadisticas_previas = datos["usuarios"].get(nombre, {}).get("estadisticas", _estadisticas_por_defecto())
     datos["usuarios"][nombre] = {
         "password": password,
         "rol": rol,
@@ -109,20 +122,9 @@ def obtener_estadisticas_usuario(nombre):
     """Devuelve el diccionario de estadisticas del usuario garantizando campos por defecto."""
     usuario = obtener_usuario(nombre)
     if not usuario:
-        return {
-            "inicios_sesion": 0,
-            "ultimo_acceso": "Sin registros",
-            "ultimo_cierre_timestamp": None,
-            "tiempo_acumulado_segundos": 0.0,
-            "similitud_acumulada": 0.0,
-            "muestras_similitud": 0,
-            "similitud_media": 0.0,
-            "intrusos_bloqueo_previo": 0,
-            "intrusos_ultima_sesion": 0,
-            "usurpaciones_detectadas": 0,
-            "retornos_exitosos": 0,
-            "ultimo_incidente_seguridad": None
-        }
+        stats_defecto = _estadisticas_por_defecto()
+        stats_defecto["ultimo_acceso"] = "Sin registros"
+        return stats_defecto
     stats = usuario.get("estadisticas", {})
     return {
         "inicios_sesion": stats.get("inicios_sesion", 0),
@@ -150,20 +152,7 @@ def registrar_inicio_sesion(nombre, similitud_inicial=None):
     
     usuario = datos["usuarios"][nombre]
     if "estadisticas" not in usuario:
-        usuario["estadisticas"] = {
-            "inicios_sesion": 0,
-            "ultimo_acceso": None,
-            "ultimo_cierre_timestamp": None,
-            "tiempo_acumulado_segundos": 0.0,
-            "similitud_acumulada": 0.0,
-            "muestras_similitud": 0,
-            "similitud_media": 0.0,
-            "intrusos_bloqueo_previo": 0,
-            "intrusos_ultima_sesion": 0,
-            "usurpaciones_detectadas": 0,
-            "retornos_exitosos": 0,
-            "ultimo_incidente_seguridad": None
-        }
+        usuario["estadisticas"] = _estadisticas_por_defecto()
     
     stats = usuario["estadisticas"]
     ultimo_cierre = stats.get("ultimo_cierre_timestamp")
@@ -192,7 +181,7 @@ def registrar_evento_seguridad(nombre, tipo_evento="usurpacion"):
     datos = cargar_usuarios()
     if "usuarios" not in datos or nombre not in datos["usuarios"]:
         return
-    stats = datos["usuarios"][nombre].setdefault("estadisticas", {})
+    stats = datos["usuarios"][nombre].setdefault("estadisticas", _estadisticas_por_defecto())
     if tipo_evento in ("usurpacion", "usurpacion_retorno"):
         stats["usurpaciones_detectadas"] = stats.get("usurpaciones_detectadas", 0) + 1
     stats["ultimo_incidente_seguridad"] = f"{time.strftime('%Y-%m-%d %H:%M:%S')}: {tipo_evento}"
@@ -203,7 +192,7 @@ def registrar_retorno_exitoso(nombre):
     datos = cargar_usuarios()
     if "usuarios" not in datos or nombre not in datos["usuarios"]:
         return
-    stats = datos["usuarios"][nombre].setdefault("estadisticas", {})
+    stats = datos["usuarios"][nombre].setdefault("estadisticas", _estadisticas_por_defecto())
     stats["retornos_exitosos"] = stats.get("retornos_exitosos", 0) + 1
     guardar_usuarios(datos)
 
@@ -218,20 +207,10 @@ def registrar_fin_sesion(nombre, duracion_segundos, similitudes_sesion=None):
     
     usuario = datos["usuarios"][nombre]
     if "estadisticas" not in usuario:
-        usuario["estadisticas"] = {
-            "inicios_sesion": 1,
-            "ultimo_acceso": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "ultimo_cierre_timestamp": int(time.time()),
-            "tiempo_acumulado_segundos": 0.0,
-            "similitud_acumulada": 0.0,
-            "muestras_similitud": 0,
-            "similitud_media": 0.0,
-            "intrusos_bloqueo_previo": 0,
-            "intrusos_ultima_sesion": 0,
-            "usurpaciones_detectadas": 0,
-            "retornos_exitosos": 0,
-            "ultimo_incidente_seguridad": None
-        }
+        usuario["estadisticas"] = _estadisticas_por_defecto()
+        usuario["estadisticas"]["inicios_sesion"] = 1
+        usuario["estadisticas"]["ultimo_acceso"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        usuario["estadisticas"]["ultimo_cierre_timestamp"] = int(time.time())
     
     stats = usuario["estadisticas"]
     tiempo_actual = stats.get("tiempo_acumulado_segundos", 0.0)

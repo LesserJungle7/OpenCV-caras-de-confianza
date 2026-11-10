@@ -1,5 +1,4 @@
 import collections
-import os
 import random
 import time
 import numpy as np
@@ -8,7 +7,6 @@ import cv2
 from config import (
     ALINEAR_OJOS,
     ANGULO_MAXIMO_ALINEACION,
-    RUTA_CASCADE_EYE,
     GESTOS_DISPONIBLES,
     GESTOS_DESCRIPCION,
     TIEMPO_MAXIMO_GESTO,
@@ -28,27 +26,17 @@ from config import (
     DIF_MAXIMA_ROJO_VERDE_DIENTES,
     COLOR_INACTIVO,
     COLOR_ACTIVO,
-    COLOR_RETO_ACTIVO,
     FUENTE,
     AUDIO_SUCCESS
 )
 from sistema import reproducir_audio
-from vision import detectar_posicion_ojos
+from vision import detectar_posicion_ojos, obtener_clasificador_ojos
 from depurador import (
     es_debug_activo,
     mostrar_debug_gestos_boca,
     mostrar_debug_gestos_ojos,
     mostrar_debug_gestos_cejas
 )
-
-_clasificador_ojos = None
-
-def obtener_clasificador_ojos():
-    """Instancia y cachea el clasificador de ojos."""
-    global _clasificador_ojos
-    if _clasificador_ojos is None and os.path.exists(RUTA_CASCADE_EYE):
-        _clasificador_ojos = cv2.CascadeClassifier(RUTA_CASCADE_EYE)
-    return _clasificador_ojos
 
 def extraer_rois(frame, x, y, w, h, angulo=0.0, offsets_ojos=None):
     """
@@ -94,7 +82,7 @@ def extraer_rois(frame, x, y, w, h, angulo=0.0, offsets_ojos=None):
         pt_oi = np.array([px_oi_x, px_oi_y])
         pt_od = np.array([px_od_x, px_od_y])
 
-    # 1. Delimitacion de ojos nivelados
+    # Delimitacion de ojos nivelados
     half_eye_w = int(0.14 * w)
     half_eye_h = int(0.065 * h)
     img_oi, _ = recortar(cara_nivelada, int(pt_oi[0] - half_eye_w), int(pt_oi[1] - half_eye_h),
@@ -102,7 +90,7 @@ def extraer_rois(frame, x, y, w, h, angulo=0.0, offsets_ojos=None):
     img_od, _ = recortar(cara_nivelada, int(pt_od[0] - half_eye_w), int(pt_od[1] - half_eye_h),
                          int(pt_od[0] + half_eye_w), int(pt_od[1] + half_eye_h))
 
-    # 2. Delimitacion antropometrica de cejas (sobre los ojos, f(D))
+    # Delimitacion antropometrica de cejas (f(D))
     mid_eye_y = (pt_oi[1] + pt_od[1]) / 2.0
     cejas_y1 = int(mid_eye_y - 0.55 * dist_d)
     cejas_y2 = int(mid_eye_y - 0.20 * dist_d)
@@ -110,7 +98,7 @@ def extraer_rois(frame, x, y, w, h, angulo=0.0, offsets_ojos=None):
     cejas_x2 = int(pt_od[0] + 0.20 * dist_d)
     img_cejas, _ = recortar(cara_nivelada, cejas_x1, cejas_y1, cejas_x2, cejas_y2)
 
-    # 3. Delimitacion antropometrica de boca ([+0.80 D, +1.48 D])
+    # Delimitacion antropometrica de boca ([+0.80 D, +1.48 D])
     mid_eye_x = (pt_oi[0] + pt_od[0]) / 2.0
     boca_y1 = int(mid_eye_y + 0.80 * dist_d)
     boca_y2 = int(mid_eye_y + 1.48 * dist_d)
@@ -220,7 +208,7 @@ def dibujar_hud(frame_mostrar, paso_actual, total_pasos, nombre_gesto, tiempo_re
     cv2.rectangle(frame_mostrar, (20, 75), (20 + ancho_barra, 85), (60, 60, 60), -1)
     if frames_ok > 0:
         progreso_px = int((frames_ok / total_frames_ok) * ancho_barra)
-        cv2.rectangle(frame_mostrar, (20, 75), (20 + progreso_px, 85), COLOR_RETO_ACTIVO, -1)
+        cv2.rectangle(frame_mostrar, (20, 75), (20 + progreso_px, 85), COLOR_ACTIVO, -1)
 
 
 class EvaluadorGestos:
@@ -508,7 +496,7 @@ class EvaluadorGestos:
         tiene_franja = False
         if len(contornos) > 0:
             c_mayor = max(contornos, key=cv2.contourArea)
-            bx, by, bw, bh = cv2.boundingRect(c_mayor)
+            _, _, bw, bh = cv2.boundingRect(c_mayor)
             aspect = bw / max(1.0, float(bh))
             if bw >= ANCHO_MINIMO_FRANJA_DIENTES and bh >= 3 and aspect >= ASPECTO_MINIMO_FRANJA_DIENTES:
                 tiene_franja = True
@@ -551,7 +539,7 @@ class EvaluadorGestos:
         """
         regiones = {"cejas": False, "ojo_izq": False, "ojo_der": False, "boca": False}
 
-        # 1. Evaluacion de cejas
+        # Evaluacion de cejas
         dist_cejas = self._medir_distancia_cejas(rois)
         dist_d = rois.get("dist_d", 0.38 * rois["cara"]["rect"][2])
         dist_norm_cejas = (dist_cejas / dist_d) if (dist_cejas is not None and dist_d > 0) else None
@@ -567,7 +555,7 @@ class EvaluadorGestos:
                 regiones["cejas"]
             )
 
-        # 2. Evaluacion de ojos
+        # Evaluacion de ojos
         izq_c, der_c, _, _ = self._evaluar_ojos(rois)
         if izq_c:
             regiones["ojo_izq"] = True
@@ -578,8 +566,8 @@ class EvaluadorGestos:
         self.ventana_ojo_izq.append(1 if izq_c else 0)
         self.ventana_ojo_der.append(1 if der_c else 0)
 
-        # 3. Evaluacion de sonrisa (dientes visibles)
-        es_sonrisa, pct_dientes = self._evaluar_sonrisa(rois)
+        # Evaluacion de sonrisa (dientes visibles)
+        es_sonrisa, _ = self._evaluar_sonrisa(rois)
         self.ultimo_estado_boca = "SONRISA" if es_sonrisa else "SERIA"
         regiones["boca"] = bool(es_sonrisa)
 
@@ -591,7 +579,7 @@ class EvaluadorGestos:
             "boca": "SONRISA" if es_sonrisa else "SERIA"
         }
 
-        # 4. Validar segun el gesto objetivo solicitado
+        # Validar segun el gesto objetivo solicitado
         cumplido = False
         if gesto == "levantar_cejas":
             cumplido = bool(regiones["cejas"])
@@ -629,7 +617,7 @@ class EvaluadorGestos:
         rois = extraer_rois(frame, x, y, w, h, self.angulo_calibrado, self.offsets_ojos_calibrados)
         frame_anotado = frame.copy()
 
-        # 1. Fase de calibracion inicial
+        # Calibracion inicial
         if not self.calibrado:
             x1_c, y1_c = max(0, x), max(0, y)
             x2_c, y2_c = min(frame.shape[1], x + w), min(frame.shape[0], y + h)
@@ -655,7 +643,7 @@ class EvaluadorGestos:
             )
             return "CALIBRANDO", frame_anotado
 
-        # 2. Control de tiempo limite del reto actual
+        # Control de tiempo limite del reto actual
         if self.tiempo_inicio_gesto is None:
             self.tiempo_inicio_gesto = time.time()
 
@@ -665,7 +653,7 @@ class EvaluadorGestos:
         if tiempo_restante <= 0.0 and not es_debug_activo():
             return "TIMEOUT", frame_anotado
 
-        # 3. Evaluacion del gesto en curso
+        # Evaluacion del gesto en curso
         gesto_objetivo = self.lista_retos[self.paso_actual]
         gesto_detectado, regiones_activas = self.evaluar_gesto_activo(gesto_objetivo, rois)
 
@@ -673,12 +661,13 @@ class EvaluadorGestos:
         total_necesarios = MIN_FRAMES_CONFIRMACION_GESTO if es_gesto_ojos else FRAMES_CONFIRMACION_GESTO
 
         if es_gesto_ojos:
+            max_abierto = VENTANA_TEMPORAL_GESTO - MIN_FRAMES_CONFIRMACION_GESTO
             if gesto_objetivo == "cerrar_ambos_ojos":
                 frames_progreso = min(sum(self.ventana_ojo_izq), sum(self.ventana_ojo_der))
             elif gesto_objetivo == "cerrar_ojo_izq":
-                frames_progreso = sum(self.ventana_ojo_izq) if sum(self.ventana_ojo_der) <= 2 else 0
+                frames_progreso = sum(self.ventana_ojo_izq) if sum(self.ventana_ojo_der) <= max_abierto else 0
             else:
-                frames_progreso = sum(self.ventana_ojo_der) if sum(self.ventana_ojo_izq) <= 2 else 0
+                frames_progreso = sum(self.ventana_ojo_der) if sum(self.ventana_ojo_izq) <= max_abierto else 0
             self.frames_confirmados = frames_progreso
         else:
             if gesto_detectado:
@@ -686,7 +675,7 @@ class EvaluadorGestos:
             else:
                 self.frames_confirmados = max(0, self.frames_confirmados - 1)
 
-        # 4. Comprobar superacion del paso
+        # Comprobar superacion del paso
         paso_superado = gesto_detectado if es_gesto_ojos else (self.frames_confirmados >= FRAMES_CONFIRMACION_GESTO)
         if paso_superado:
             reproducir_audio(AUDIO_SUCCESS)
@@ -699,7 +688,7 @@ class EvaluadorGestos:
             if self.paso_actual >= len(self.lista_retos):
                 return "EXITO", frame_anotado
 
-        # 5. Renderizado visual con feedback inmediato por region activa
+        # Renderizado visual y feedback
         dibujar_rois(
             frame_anotado,
             rois,

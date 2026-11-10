@@ -102,10 +102,6 @@ def cerrar_debug_fase(fase):
     if cerradas:
         cv2.waitKey(1)
 
-def obtener_fase_actual():
-    """Devuelve el identificador de la fase activa actual."""
-    return _fase_actual
-
 def cerrar_ventanas_debug():
     """Cierra limpiamente todas las ventanas de inspeccion de OpenCV."""
     global _ventanas_abiertas
@@ -192,9 +188,7 @@ def _crear_tile(imagen, etiqueta, subtitulo="", tam=(160, 160), color_borde=(60,
         
     return canvas
 
-# -------------------------------------------------------------------------
-# CASO 1: PIPELINE DE NORMALIZACION FACIAL
-# -------------------------------------------------------------------------
+# Pipeline de normalizacion facial
 def mostrar_debug_normalizacion(etapas):
     """
     Renderiza un mosaico con las etapas consecutivas de normalizacion facial:
@@ -244,9 +238,7 @@ def mostrar_debug_normalizacion(etapas):
     cv2.imshow(VENTANA_DEBUG_NORMALIZACION, mosaico)
     _ventanas_abiertas.add(VENTANA_DEBUG_NORMALIZACION)
 
-# -------------------------------------------------------------------------
-# CASO 2: ESTABILIZACION Y QUIETUD FACIAL (SUSTRACTOR KNN)
-# -------------------------------------------------------------------------
+# Estabilizacion y quietud facial (sustractor KNN)
 def mostrar_debug_estabilidad(roi_gris, roi_mascara_knn, area_movimiento, desplazamiento, aspect, es_estable, frames_estables=0, umbral_frames=12, contorno_max=None):
     """
     Muestra la inspeccion de quietud (Sustraccion de Fondo KNN) y estabilidad posicional.
@@ -300,9 +292,7 @@ def mostrar_debug_estabilidad(roi_gris, roi_mascara_knn, area_movimiento, despla
     cv2.imshow(VENTANA_DEBUG_ESTABILIDAD, mosaico)
     _ventanas_abiertas.add(VENTANA_DEBUG_ESTABILIDAD)
 
-# -------------------------------------------------------------------------
-# CASO 3: RECONOCIMIENTO FACIAL Y TEMPLATE MATCHING
-# -------------------------------------------------------------------------
+# Reconocimiento facial y template matching
 def mostrar_debug_matching(cara_actual, mejor_patron, nombre_detectado, score, umbral=UMBRAL_COINCIDENCIA):
     """
     Renderiza la comparacion lado a lado entre la cara capturada, la plantilla
@@ -355,9 +345,7 @@ def mostrar_debug_matching(cara_actual, mejor_patron, nombre_detectado, score, u
     cv2.imshow(VENTANA_DEBUG_MATCHING, mosaico)
     _ventanas_abiertas.add(VENTANA_DEBUG_MATCHING)
 
-# -------------------------------------------------------------------------
-# CASO 4: PRUEBA DE VIDA (BOCA, OJOS Y CEJAS)
-# -------------------------------------------------------------------------
+# Prueba de vida (boca, ojos y cejas)
 def mostrar_debug_gestos_boca(img_boca_canon, mascara_dientes, pct_dientes, umbral_dientes, tiene_franja, es_sonrisa):
     """Visualiza la segmentacion de la boca, mascara de esmalte y contorno dental."""
     if not _es_ventana_permitida(VENTANA_DEBUG_BOCA) or img_boca_canon is None:

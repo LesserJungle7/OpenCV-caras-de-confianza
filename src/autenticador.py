@@ -1,22 +1,10 @@
 import os
-import sys
 import time
 import numpy as np
 import cv2
 
-# Asegura que la raiz del proyecto y la carpeta src esten en sys.path
-_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_SRC_DIR = os.path.dirname(os.path.abspath(__file__))
-for _p in (_BASE_DIR, _SRC_DIR):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-
 from config import (
-    CARPETA_CONFIANZA,
-    CARPETA_INTRUSOS,
     ARCHIVO_CONFIG,
-    RUTA_CASCADE,
-    UMBRAL_COINCIDENCIA,
     TIEMPO_AUSENCIA_GUARDIA,
     TIEMPO_MAXIMO_GESTO,
     FRAMES_ESTABILIDAD_GUARDIA,
@@ -64,7 +52,6 @@ from depurador import (
     pausar_inspeccion_debug
 )
 from interfaz import (
-    formatear_duracion,
     dibujar_barra_progreso,
     dibujar_barra_menu_principal,
     dibujar_hud_sesion,
@@ -74,10 +61,6 @@ from interfaz import (
     mostrar_mensaje_pantalla,
     mostrar_estadisticas_usuario_modal
 )
-
-def dibujar_interfaz_usuario(frame, usuario, rol, stats, duracion_actual, mostrar_detalles, tiempo_ausente=0.0, similitud_sesion=None, mostrar_opciones=False):
-    """Renderiza el HUD de usuario activo con accesos a detalles (m) y opciones (o)."""
-    dibujar_hud_sesion(frame, usuario, rol, stats, duracion_actual, mostrar_detalles, mostrar_opciones, tiempo_ausente, similitud_sesion)
 
 def actualizar_estabilidad_facial(caja_actual, ultima_caja, frame_byn, frames_estables):
     """
@@ -133,11 +116,6 @@ def verificar_password_interfaz(camara, usuario, datos_sistema=None):
             duracion_ms=1800
         )
         return False
-
-def verificar_password_texto(usuario, datos_sistema=None):
-    """Compatibilidad con versiones de consola."""
-    info_usuario = datos_sistema.get("usuarios", {}).get(usuario) if datos_sistema else obtener_usuario(usuario)
-    return info_usuario is not None
 
 def mostrar_permisos_usuario(usuario, datos_sistema=None):
     """Muestra por terminal el mensaje de bienvenida y el rol asignado."""
@@ -324,9 +302,7 @@ def ejecutar_guardia(camara=None, clasificador=None):
             caras, frame_byn = detectar_caras(frame, clasificador)
             h_f, w_f = frame_mostrar.shape[:2]
 
-            # -------------------------------------------------------------
-            # ESTADO 1: SESION INACTIVA (MODO GUARDIA)
-            # -------------------------------------------------------------
+            # Modo guardia (sesion inactiva)
             if not estado_sesion:
                 # Barra inferior permanente en modo guardia
                 cv2.rectangle(frame_mostrar, (0, h_f - 34), (w_f, h_f), (15, 15, 22), -1)
@@ -390,7 +366,6 @@ def ejecutar_guardia(camara=None, clasificador=None):
                                 print(f"\n[INVITADO DETECTADO] Acceso directo para '{usuario}'. Iniciando reto facial...")
                                 if validar_contrasena_facial(camara, clasificador):
                                     mostrar_permisos_usuario(usuario, datos_sistema)
-                                    similitud_login = max(0.0, min(100.0, (1.0 - score) * 100.0))
                                     registrar_inicio_sesion(usuario, similitud_inicial=similitud_login)
                                     stats_usuario = obtener_estadisticas_usuario(usuario)
                                     estado_sesion = True
@@ -420,7 +395,6 @@ def ejecutar_guardia(camara=None, clasificador=None):
                                 if resultado_pass is True:
                                     if validar_contrasena_facial(camara, clasificador):
                                         mostrar_permisos_usuario(usuario, datos_sistema)
-                                        similitud_login = max(0.0, min(100.0, (1.0 - score) * 100.0))
                                         registrar_inicio_sesion(usuario, similitud_inicial=similitud_login)
                                         stats_usuario = obtener_estadisticas_usuario(usuario)
                                         estado_sesion = True
@@ -470,9 +444,7 @@ def ejecutar_guardia(camara=None, clasificador=None):
                             ultima_caja = None
                             cambiar_fase("guardia_login")
 
-            # -------------------------------------------------------------
-            # ESTADO 2: SESION ACTIVA (EL USUARIO YA ACCEDIO)
-            # -------------------------------------------------------------
+            # Sesion activa
             else:
                 duracion_actual = time.time() - tiempo_inicio_sesion if tiempo_inicio_sesion else 0.0
 
@@ -521,9 +493,7 @@ def ejecutar_guardia(camara=None, clasificador=None):
                     tiempo_ausente = 0.0
                     ultimo_tiempo_ausencia = 0.0
 
-                    # ---------------------------------------------------------
-                    # CASO A: FASE DE VERIFICACION DE RETORNO (ANTI-USURPACION)
-                    # ---------------------------------------------------------
+                    # Verificacion de retorno tras ausencia breve
                     if verificando_retorno:
                         if frames_estables_retorno < FRAMES_ESTABILIDAD_GUARDIA:
                             _, frames_estables_retorno = actualizar_estabilidad_facial(
@@ -537,7 +507,7 @@ def ejecutar_guardia(camara=None, clasificador=None):
                             )
                         else:
                             roi_cara = normalizar_cara(frame_byn, caja=caja_actual)
-                            coincide_frame, score_frame, _ = verificar_usuario_especifico(
+                            _, score_frame, _ = verificar_usuario_especifico(
                                 roi_cara, plantillas_usuario_activo, UMBRAL_REENGANCHE_SESION
                             )
                             buffer_scores_retorno.append(score_frame)
@@ -589,9 +559,7 @@ def ejecutar_guardia(camara=None, clasificador=None):
                                     time.sleep(5)
                                     resetear_estado_sesion()
 
-                    # ---------------------------------------------------------
-                    # CASO B: OPERACION NORMAL DE SESION ACTIVA
-                    # ---------------------------------------------------------
+                    # Flujo regular de sesion activa
                     else:
                         cv2.rectangle(frame_mostrar, (x, y), (x + ancho, y + alto), (0, 255, 0), GROSOR)
 
@@ -601,37 +569,34 @@ def ejecutar_guardia(camara=None, clasificador=None):
                         contador_frames_sesion += 1
                         if contador_frames_sesion % 15 == 0 and len(plantillas_usuario_activo) > 0:
                             roi_cara = normalizar_cara(frame_byn, caja=caras[0])
-                            _, score_actual, sim_act = verificar_usuario_especifico(
+                            _, _, sim_act = verificar_usuario_especifico(
                                 roi_cara, plantillas_usuario_activo, UMBRAL_REENGANCHE_SESION
                             )
                             historial_similitud_sesion.append(sim_act)
 
-                if estado_sesion:
-                    info_usr = datos_sistema.get("usuarios", {}).get(usuario_autenticado, {})
-                    rol_usr = info_usr.get("rol", "Invitado") if usuario_autenticado in datos_sistema.get("usuarios", {}) else "Invitado"
-                    sim_sesion_media = float(np.mean(historial_similitud_sesion)) if historial_similitud_sesion else None
-                    dibujar_hud_sesion(
-                        frame_mostrar,
-                        usuario=usuario_autenticado,
-                        rol=rol_usr,
-                        stats=stats_usuario,
-                        duracion_actual=duracion_actual,
-                        mostrar_detalles=mostrar_detalles,
-                        mostrar_opciones=mostrar_opciones,
-                        tiempo_ausente=tiempo_ausente if len(caras) == 0 else 0.0,
-                        similitud_sesion=sim_sesion_media
-                    )
+                    if estado_sesion:
+                        info_usr = datos_sistema.get("usuarios", {}).get(usuario_autenticado, {})
+                        rol_usr = info_usr.get("rol", "Invitado") if usuario_autenticado in datos_sistema.get("usuarios", {}) else "Invitado"
+                        sim_sesion_media = float(np.mean(historial_similitud_sesion)) if historial_similitud_sesion else None
+                        dibujar_hud_sesion(
+                            frame_mostrar,
+                            usuario=usuario_autenticado,
+                            rol=rol_usr,
+                            stats=stats_usuario,
+                            duracion_actual=duracion_actual,
+                            mostrar_detalles=mostrar_detalles,
+                            mostrar_opciones=mostrar_opciones,
+                            tiempo_ausente=tiempo_ausente if len(caras) == 0 else 0.0,
+                            similitud_sesion=sim_sesion_media
+                        )
 
             cv2.imshow("Autenticador Facial", frame_mostrar)
             tecla = cv2.waitKey(1) & 0xFF
 
-            # Tecla Q o ESC para volver a la pantalla anterior
-            if tecla == ord('q') or tecla == ord('Q') or tecla == 27:
+            if tecla in (ord('q'), ord('Q'), 27):
                 if estado_sesion and mostrar_opciones:
-                    # Si el panel de opciones estaba abierto, Q/ESC lo oculta y vuelve a la sesion
                     mostrar_opciones = False
                 elif estado_sesion:
-                    # Si la sesion esta activa, Q/ESC cierra la sesion y vuelve al menu principal
                     if usuario_autenticado and tiempo_inicio_sesion:
                         duracion_actual = time.time() - tiempo_inicio_sesion
                         if usuario_autenticado in datos_sistema.get("usuarios", {}):
@@ -640,7 +605,6 @@ def ejecutar_guardia(camara=None, clasificador=None):
                     print("Cerrando sesion y regresando al menu principal...")
                     break
                 else:
-                    # En modo guardia, Q/ESC regresa al menu principal
                     print("Regresando al menu principal...")
                     break
 
@@ -696,8 +660,10 @@ def ejecutar_guardia(camara=None, clasificador=None):
                 info_usr = datos_sistema.get("usuarios", {}).get(usuario_autenticado, {})
                 rol_actual = info_usr.get("rol", "Invitado") if usuario_autenticado in datos_sistema.get("usuarios", {}) else "Invitado"
 
+                opcion_ejecutada = False
                 if rol_actual == "Total":
                     if tecla == ord('1'):
+                        opcion_ejecutada = True
                         nueva_pass = capturar_texto_pantalla(
                             camara,
                             titulo="CAMBIAR CONTRASEÑA",
@@ -710,14 +676,13 @@ def ejecutar_guardia(camara=None, clasificador=None):
                             mostrar_mensaje_pantalla(
                                 camara,
                                 titulo="CONTRASEÑA ACTUALIZADA",
-                                lineas_mensaje=[f"Tu contraseña ha sido actualizada con éxito."],
+                                lineas_mensaje=["Tu contraseña ha sido actualizada con éxito."],
                                 color=(0, 255, 0),
                                 duracion_ms=1800
                             )
-                        tiempo_inicio_ausencia = None
-                        mostrar_opciones = False
 
                     elif tecla == ord('2'):
+                        opcion_ejecutada = True
                         seleccion = seleccionar_usuario_pantalla(
                             camara,
                             listar_usuarios(),
@@ -741,10 +706,9 @@ def ejecutar_guardia(camara=None, clasificador=None):
                                     color=(0, 255, 0),
                                     duracion_ms=1800
                                 )
-                        tiempo_inicio_ausencia = None
-                        mostrar_opciones = False
 
                     elif tecla == ord('3'):
+                        opcion_ejecutada = True
                         seleccion = seleccionar_usuario_pantalla(
                             camara,
                             listar_usuarios(),
@@ -754,15 +718,13 @@ def ejecutar_guardia(camara=None, clasificador=None):
                             otro_nombre, otro_rol = seleccion
                             st = obtener_estadisticas_usuario(otro_nombre)
                             mostrar_estadisticas_usuario_modal(camara, otro_nombre, otro_rol, st)
-                        tiempo_inicio_ausencia = None
-                        mostrar_opciones = False
 
                     elif tecla == ord('4'):
+                        opcion_ejecutada = True
                         conf = seleccionar_opcion_pantalla(
                             camara,
                             titulo="BORRAR MI USUARIO",
-                            opciones=[("1", "Si, borrar mi usuario"), ("2", "Cancelar")],
-                            subtitulo="Confirmar eliminacion de cuenta"
+                            opciones=[("1", "Si, borrar mi usuario"), ("2", "Cancelar")]
                         )
                         if conf == "1":
                             eliminar_usuario(usuario_autenticado)
@@ -775,10 +737,9 @@ def ejecutar_guardia(camara=None, clasificador=None):
                             )
                             resetear_estado_sesion()
                             return "SALIR"
-                        tiempo_inicio_ausencia = None
-                        mostrar_opciones = False
 
                     elif tecla == ord('5'):
+                        opcion_ejecutada = True
                         otros_usuarios = [(u, r) for (u, r) in listar_usuarios() if u != usuario_autenticado]
                         if not otros_usuarios:
                             mostrar_mensaje_pantalla(
@@ -799,8 +760,7 @@ def ejecutar_guardia(camara=None, clasificador=None):
                                 conf = seleccionar_opcion_pantalla(
                                     camara,
                                     titulo=f"BORRAR: {otro_nombre.upper()}",
-                                    opciones=[("1", "Si, borrar usuario"), ("2", "Cancelar")],
-                                    subtitulo="Confirmar eliminacion"
+                                    opciones=[("1", "Si, borrar usuario"), ("2", "Cancelar")]
                                 )
                                 if conf == "1":
                                     eliminar_usuario(otro_nombre)
@@ -813,11 +773,10 @@ def ejecutar_guardia(camara=None, clasificador=None):
                                         color=(0, 255, 0),
                                         duracion_ms=1800
                                     )
-                        tiempo_inicio_ausencia = None
-                        mostrar_opciones = False
 
                 elif rol_actual == "Operador":
                     if tecla == ord('1'):
+                        opcion_ejecutada = True
                         nueva_pass = capturar_texto_pantalla(
                             camara,
                             titulo="CAMBIAR CONTRASEÑA",
@@ -830,19 +789,17 @@ def ejecutar_guardia(camara=None, clasificador=None):
                             mostrar_mensaje_pantalla(
                                 camara,
                                 titulo="CONTRASEÑA ACTUALIZADA",
-                                lineas_mensaje=[f"Tu contraseña ha sido actualizada con éxito."],
+                                lineas_mensaje=["Tu contraseña ha sido actualizada con éxito."],
                                 color=(0, 255, 0),
                                 duracion_ms=1800
                             )
-                        tiempo_inicio_ausencia = None
-                        mostrar_opciones = False
 
                     elif tecla == ord('2'):
+                        opcion_ejecutada = True
                         conf = seleccionar_opcion_pantalla(
                             camara,
                             titulo="BORRAR MI USUARIO",
-                            opciones=[("1", "Si, borrar mi usuario"), ("2", "Cancelar")],
-                            subtitulo="Confirmar eliminacion de cuenta"
+                            opciones=[("1", "Si, borrar mi usuario"), ("2", "Cancelar")]
                         )
                         if conf == "1":
                             eliminar_usuario(usuario_autenticado)
@@ -855,11 +812,10 @@ def ejecutar_guardia(camara=None, clasificador=None):
                             )
                             resetear_estado_sesion()
                             return "SALIR"
-                        tiempo_inicio_ausencia = None
-                        mostrar_opciones = False
 
                 elif rol_actual == "Invitado":
                     if tecla in (ord('1'), ord('2'), ord('3'), ord('4'), ord('5')):
+                        opcion_ejecutada = True
                         mostrar_mensaje_pantalla(
                             camara,
                             titulo="ACCESO RESTRINGIDO",
@@ -870,8 +826,10 @@ def ejecutar_guardia(camara=None, clasificador=None):
                             color=(0, 165, 255),
                             duracion_ms=2000
                         )
-                        tiempo_inicio_ausencia = None
-                        mostrar_opciones = False
+
+                if opcion_ejecutada:
+                    tiempo_inicio_ausencia = None
+                    mostrar_opciones = False
 
     except KeyboardInterrupt:
         if estado_sesion and usuario_autenticado:
@@ -936,7 +894,7 @@ def ejecutar_aplicacion(camara=None, clasificador=None):
                     break
             elif tecla in (ord('d'), ord('D')):
                 toggle_debug()
-            elif tecla == ord('q') or tecla == ord('Q') or tecla == 27:
+            elif tecla in (ord('q'), ord('Q'), 27):
                 print("Saliendo de la aplicacion...")
                 break
     finally:

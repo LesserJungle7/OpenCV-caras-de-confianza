@@ -196,7 +196,7 @@ Al iniciarse, se abrirá la ventana de la cámara con la barra superior de opcio
 
 ## Configuración del Sistema
 
-Los parámetros del sistema pueden ajustarse en [`config.py`](file:///D:/UNI/Quinto%20Año%2026-27/ID/GitHub/OpenCV-caras-de-confianza/config.py):
+Los parámetros del sistema pueden ajustarse en [`config.py`](config.py):
 
 | Parámetro | Valor por defecto | Descripción |
 | :--- | :--- | :--- |
